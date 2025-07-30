@@ -4,7 +4,7 @@ import pytest
 import time
 from unittest.mock import Mock, patch, MagicMock, call
 import paho.mqtt.client as mqtt
-from waldo import MQTTPublisher
+from mqtt_clients.paho_client import PahoMQTTPublisher as MQTTPublisher
 
 
 class TestMQTTPublisher:

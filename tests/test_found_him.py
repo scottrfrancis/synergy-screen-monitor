@@ -7,9 +7,9 @@ import paho.mqtt.client as mqtt
 import sys
 import os
 
-# Add parent directory to path to import found-him
+# Add parent directory to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from found_him import MQTTSubscriber
+from mqtt_clients.paho_client import PahoMQTTSubscriber as MQTTSubscriber
 
 
 class TestMQTTSubscriber:

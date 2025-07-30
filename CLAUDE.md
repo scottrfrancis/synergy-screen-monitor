@@ -113,3 +113,24 @@ After investigating multiple approaches for real-time desktop focus feedback, th
 - Enables distributed monitoring across the network
 - Publishers and subscribers can run on different systems
 - Provides reliable message delivery with QoS levels
+
+### Dependency Injection Framework
+- **Abstract Interfaces**: `MQTTPublisherInterface` and `MQTTSubscriberInterface` define standard operations
+- **Factory Pattern**: `MQTTClientFactory` provides centralized client creation
+- **Runtime Selection**: Client type can be specified via CLI argument `--client-type`
+- **Extensible Design**: New MQTT client implementations can be added without changing existing code
+
+#### Current Implementation Structure:
+```
+mqtt_clients/
+├── __init__.py          # Package exports
+├── interface.py         # Abstract base classes
+├── paho_client.py       # Paho MQTT implementation
+└── factory.py           # Client factory
+```
+
+#### Adding New Client Types:
+1. Implement `MQTTPublisherInterface` and `MQTTSubscriberInterface`
+2. Add new client type to `MQTTClientFactory.SUPPORTED_CLIENTS`
+3. Update factory methods to handle new client type
+4. CLI arguments automatically support new client types

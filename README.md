@@ -77,10 +77,10 @@ python found-him.py studio
 #### Custom configuration:
 ```bash
 # Monitor with custom MQTT settings
-tail -f /path/to/synergy.log | python waldo.py --broker 192.168.1.100 --topic my-synergy
+tail -f /path/to/synergy.log | python waldo.py --broker 192.168.1.100 --topic my-synergy --client-type paho
 
 # Alert for different desktop with custom settings
-python found-him.py --broker 192.168.1.100 --topic my-synergy workstation
+python found-him.py --broker 192.168.1.100 --topic my-synergy --client-type paho workstation
 ```
 
 ## Configuration Options
@@ -89,12 +89,14 @@ python found-him.py --broker 192.168.1.100 --topic my-synergy workstation
 - `--broker`: MQTT broker address (default: `vault.local`)
 - `--port`: MQTT broker port (default: `1883`)
 - `--topic`: MQTT topic to publish to (default: `synergy`)
+- `--client-type`: MQTT client type to use (default: `paho`, choices: `paho`)
 
 ### found-him.py (Alert Subscriber)
 - `--broker, -b`: MQTT broker address (default: `vault.local`)
 - `--port, -p`: MQTT broker port (default: `1883`)
 - `--topic, -t`: MQTT topic to subscribe to (default: `synergy`)
 - `--key, -k`: JSON key to monitor (default: `current_desktop`)
+- `--client-type`: MQTT client type to use (default: `paho`, choices: `paho`)
 - `value`: Desktop name to alert on (required, e.g., "studio")
 
 ## Message Format
@@ -129,6 +131,20 @@ Alert sounds work across platforms:
 - **Modified Synergy Fork**: Rejected - creates maintenance burden, prevents easy updates
 
 The log-based approach is the recommended integration method for Synergy monitoring.
+
+### Dependency Injection Architecture
+
+The system uses a dependency injection framework for MQTT client selection:
+
+- **Extensible Design**: Easy to add new MQTT client implementations
+- **Runtime Selection**: Choose client type via `--client-type` argument
+- **Interface-Based**: All clients implement consistent abstract interfaces
+- **Factory Pattern**: Centralized client creation through `MQTTClientFactory`
+
+Current supported clients:
+- `paho`: Eclipse Paho MQTT Python client (default)
+
+Future client support can be added without changing existing code.
 
 ## Troubleshooting
 

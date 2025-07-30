@@ -11,8 +11,8 @@ import os
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from waldo import MQTTPublisher
-from found_him import MQTTSubscriber
+from mqtt_clients.paho_client import PahoMQTTPublisher as MQTTPublisher
+from mqtt_clients.paho_client import PahoMQTTSubscriber as MQTTSubscriber
 
 
 @pytest.mark.integration
