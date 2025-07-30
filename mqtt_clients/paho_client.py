@@ -315,7 +315,7 @@ class PahoMQTTSubscriber(MQTTSubscriberInterface):
         Returns:
             bool: True when successfully connected
         """
-        import os
+        
         
         while not self.connected:
             try:
