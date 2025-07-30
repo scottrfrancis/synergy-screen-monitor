@@ -134,3 +134,65 @@ mqtt_clients/
 2. Add new client type to `MQTTClientFactory.SUPPORTED_CLIENTS`
 3. Update factory methods to handle new client type
 4. CLI arguments automatically support new client types
+
+## Configuration Management
+
+### Environment-Based Configuration System
+The system uses a flexible configuration approach that eliminates hardcoded values while supporting multiple deployment patterns.
+
+#### Configuration Loading Priority:
+1. **Command Line Arguments** (highest priority)  
+2. **Environment Variables** (.env file)
+3. **Application Defaults** (lowest priority)
+
+#### Configuration Files Structure:
+```
+config.py                 # Configuration management module
+.env.primary.example      # Primary machine template
+.env.secondary.example    # Secondary machine template
+.env                      # User's actual config (gitignored)
+```
+
+### Multi-Machine Deployment Architecture
+
+#### Primary Machine (Synergy Server):
+- **Role**: `ROLE=primary`
+- **Services**: Runs `waldo.py` (log monitor) + optional `found-him.py`  
+- **Requirements**: Access to Synergy logs (`SYNERGY_LOG_PATH`)
+- **Function**: Publishes all desktop switching events to MQTT
+
+#### Secondary Machines (Synergy Clients):
+- **Role**: `ROLE=secondary`
+- **Services**: Runs `found-him.py` only
+- **Requirements**: `TARGET_DESKTOP` configuration
+- **Function**: Subscribes to MQTT for specific desktop alerts
+
+### Configuration Parameters
+
+#### Core Settings:
+- `ROLE`: Deployment role (`primary` or `secondary`)
+- `MQTT_BROKER`: Broker hostname/IP address
+- `MQTT_PORT`: Broker port (default: 1883)
+- `MQTT_TOPIC`: Topic for desktop events (default: synergy)
+- `MQTT_CLIENT_TYPE`: Client implementation (default: paho)
+
+#### Primary-Specific Settings:
+- `SYNERGY_LOG_PATH`: Path to Synergy log file (platform-aware defaults)
+- `TARGET_DESKTOP`: Optional local desktop to monitor
+
+#### Secondary-Specific Settings:
+- `TARGET_DESKTOP`: Required desktop name to monitor for alerts
+
+#### Logging Settings:
+- `LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
+- `DEBUG_MODE`: Enable debug mode (true/false)
+- `LOG_DIR`: Directory for application logs (default: ./logs)
+
+### Enhanced start.sh Script
+
+The startup script now provides:
+- **Role-based service startup** (primary vs secondary mode)
+- **Configuration validation** with helpful error messages
+- **Environment variable loading** from .env files
+- **Service health monitoring** and error handling
+- **Automatic service orchestration** based on configuration

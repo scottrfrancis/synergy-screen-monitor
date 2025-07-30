@@ -1,6 +1,9 @@
 # MQTT client library
 paho-mqtt==2.1.0
 
+# Configuration management
+python-dotenv==1.0.0
+
 # Testing dependencies
 pytest==8.0.0
 pytest-mock==3.12.0

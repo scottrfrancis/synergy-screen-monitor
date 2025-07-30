@@ -82,7 +82,15 @@ class PahoMQTTPublisher(MQTTPublisherInterface):
         self.connected = False
     
     def connect_with_retry(self) -> bool:
-        """Attempt to connect to MQTT broker with exponential backoff."""
+        """
+        Attempt to connect to MQTT broker with exponential backoff.
+        
+        This method will retry indefinitely until a successful connection is made.
+        It only returns True on success and does not return on failure.
+        
+        Returns:
+            bool: True when successfully connected (never returns False)
+        """
         while not self.connected:
             try:
                 self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
