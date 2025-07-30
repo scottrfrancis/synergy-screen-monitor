@@ -6,7 +6,7 @@ A lightweight monitoring system that alerts you when you switch to specific comp
 
 If you use [Synergy](https://symless.com/synergy) to share a keyboard and mouse between multiple computers, this tool monitors your desktop switches and plays an alert sound when you switch to a specific computer. 
 
-For example, if you have a "studio" computer for audio work, this can beep when you switch to it, reminding you that your audio interface is now active.
+For example, if you have a "workstation" computer for audio work, this can beep when you switch to it, reminding you that your audio interface is now active.
 
 ## How it Works
 
@@ -50,10 +50,10 @@ This system uses log monitoring as its integration method with Synergy. This app
 3. Set up configuration:
    ```bash
    # For primary machine (runs log monitor)
-   cp .env.primary.example .env
+   cp .env.example .env
    
    # For secondary machine (alert only)
-   cp .env.secondary.example .env
+   cp .env.example .env
    ```
 
 4. Edit the `.env` file to match your setup (see Configuration section below)
@@ -67,7 +67,7 @@ This system uses log monitoring as its integration method with Synergy. This app
 1. **Primary Machine Setup** (runs log monitor):
    ```bash
    # Copy and edit primary configuration
-   cp .env.primary.example .env
+   cp .env.example .env
    # Edit .env file - set SYNERGY_LOG_PATH and MQTT_BROKER
    
    # Start services
@@ -77,7 +77,7 @@ This system uses log monitoring as its integration method with Synergy. This app
 2. **Secondary Machine Setup** (alert only):
    ```bash
    # Copy and edit secondary configuration  
-   cp .env.secondary.example .env
+   cp .env.example .env
    # Edit .env file - set TARGET_DESKTOP and MQTT_BROKER
    
    # Start alert service
@@ -97,7 +97,7 @@ tail -f ~/Library/Logs/Synergy/synergy.log | python waldo.py
 
 #### Listen for specific desktop:
 ```bash
-python found-him.py studio
+python found-him.py workstation
 ```
 
 #### Custom configuration:
@@ -115,7 +115,7 @@ The system uses a combination of `.env` files and command-line arguments for con
 
 ### Environment Configuration (.env files)
 
-#### Primary Machine Configuration (.env.primary.example)
+#### Configuration (.env.example)
 ```bash
 ROLE=primary
 SYNERGY_LOG_PATH=/Users/username/Library/Logs/Synergy/synergy.log
@@ -123,21 +123,19 @@ TARGET_DESKTOP=          # Optional: alert for this machine too
 MQTT_BROKER=localhost
 MQTT_PORT=1883
 MQTT_TOPIC=synergy
-MQTT_CLIENT_TYPE=paho
+MQTT_CLIENT_TYPE=nanomq
 LOG_LEVEL=ERROR
 DEBUG_MODE=false
 ```
 
-#### Secondary Machine Configuration (.env.secondary.example)
+#### Secondary Machine Configuration
+For secondary machines (alert-only), copy `.env.example` to `.env` and modify:
 ```bash
 ROLE=secondary
-TARGET_DESKTOP=studio    # Required: desktop name to monitor
-MQTT_BROKER=primary-machine.local
-MQTT_PORT=1883
-MQTT_TOPIC=synergy
-MQTT_CLIENT_TYPE=paho
-LOG_LEVEL=ERROR
-DEBUG_MODE=false
+TARGET_DESKTOP=workstation    # Required: desktop name to monitor
+MQTT_BROKER=primary-machine.local  # Point to primary machine
+MQTT_CLIENT_TYPE=nanomq
+# SYNERGY_LOG_PATH not needed for secondary machines
 ```
 
 ### Command Line Options
@@ -146,7 +144,7 @@ DEBUG_MODE=false
 - `--broker`: MQTT broker address
 - `--port`: MQTT broker port  
 - `--topic`: MQTT topic to publish to
-- `--client-type`: MQTT client type (`paho`)
+- `--client-type`: MQTT client type (`paho`, `nanomq`)
 - `--debug`: Enable debug logging
 
 #### found-him.py (Alert Subscriber)  
@@ -154,7 +152,7 @@ DEBUG_MODE=false
 - `--port, -p`: MQTT broker port
 - `--topic, -t`: MQTT topic to subscribe to
 - `--key, -k`: JSON key to monitor (default: `current_desktop`)
-- `--client-type`: MQTT client type (`paho`)
+- `--client-type`: MQTT client type (`paho`, `nanomq`)
 - `--debug`: Enable debug logging
 - `value`: Target desktop name (required positional argument)
 
@@ -184,7 +182,7 @@ Secondary Machines (Synergy Clients)
 The system publishes JSON messages to MQTT:
 ```json
 {
-  "current_desktop": "studio"
+  "current_desktop": "workstation"
 }
 ```
 
@@ -223,8 +221,82 @@ The system uses a dependency injection framework for MQTT client selection:
 
 Current supported clients:
 - `paho`: Eclipse Paho MQTT Python client (default)
+- `nanomq`: NanoSDK high-performance MQTT client with QUIC support
 
 Future client support can be added without changing existing code.
+
+## NanoMQ High-Performance Client
+
+The system includes support for NanoSDK, a high-performance MQTT client library with QUIC support, offering significantly better performance than the default Paho client.
+
+### Building NanoMQ Support
+
+#### Prerequisites
+- CMake 3.16+
+- C++17 compatible compiler (GCC 7+, Clang 6+, MSVC 2017+)
+- Python 3.8+
+- Git (for submodules)
+
+#### Automated Build
+```bash
+# Build everything automatically
+./build.sh
+
+# Clean build
+./build.sh --clean
+
+# Skip tests
+./build.sh --skip-tests
+```
+
+#### Manual Build
+```bash
+# Install build dependencies
+pip install -r requirements.txt
+
+# Initialize submodules (if not done automatically)
+git submodule update --init --recursive
+
+# Build NanoSDK and Python bindings
+python setup.py build_ext --inplace
+
+# Test the build
+python -c "import nanomq_bindings; print('NanoMQ bindings work!')"
+```
+
+### Using NanoMQ Client
+
+Once built, use NanoMQ client by specifying `--client-type nanomq`:
+
+```bash
+# Use NanoMQ for log monitoring
+tail -f ~/Library/Logs/Synergy/synergy.log | python waldo.py --client-type nanomq
+
+# Use NanoMQ for alerts
+python found-him.py workstation --client-type nanomq
+
+# Use in configuration files
+MQTT_CLIENT_TYPE=nanomq
+```
+
+### Performance Benefits
+
+NanoMQ provides significant performance improvements:
+- **10x faster** than Paho on multi-core systems
+- **Ultra-low latency** with MQTT over QUIC support
+- **Better scalability** with async I/O design
+- **Built-in reconnection** with 0-RTT fast handshake
+
+### NanoMQ vs Paho Comparison
+
+| Feature | Paho | NanoMQ |
+|---------|------|--------|
+| Performance | Standard | 10x faster |
+| QUIC Support | No | Yes |
+| Memory Usage | Higher | Lower |
+| Reconnection | Basic | 0-RTT fast handshake |
+| Threading | Single-threaded | Multi-core optimized |
+| Deployment | Python only | Requires C++ build |
 
 ## Troubleshooting
 
@@ -244,6 +316,12 @@ Future client support can be added without changing existing code.
 - Linux: Ensure `paplay` is installed or terminal bell is enabled
 - Windows: Enable system sounds
 
+### NanoMQ Client Issues
+- **Import Error**: Run `./build.sh` to build the NanoMQ bindings
+- **Build Failures**: Ensure CMake 3.16+ and C++17 compiler are installed
+- **Submodule Missing**: Run `git submodule update --init --recursive`
+- **Permission Errors**: May need developer tools on macOS: `xcode-select --install`
+
 ### Version Compatibility
 - This system works with all Synergy versions that write desktop switch events to logs
 - Log format changes are handled by the regex pattern matching
@@ -254,7 +332,7 @@ Future client support can be added without changing existing code.
 ### Monitor multiple desktops
 Run multiple instances of `found-him.py`:
 ```bash
-python found-him.py studio &
+python found-him.py workstation &
 python found-him.py workstation &
 python found-him.py laptop &
 ```
