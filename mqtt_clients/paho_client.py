@@ -272,7 +272,6 @@ class PahoMQTTSubscriber(MQTTSubscriberInterface):
             userdata: The private user data
             msg: An instance of MQTTMessage containing topic and payload
         """
-        import json
         
         self.last_message_time = time.time()
         
