@@ -39,26 +39,52 @@ This system uses log monitoring as its integration method with Synergy. This app
 1. Clone this repository:
    ```bash
    git clone <repository-url>
-   cd synergy-alert
+   cd synergy-screen-monitor
    ```
 
-2. Install the required Python package:
+2. Install the required Python packages:
    ```bash
-   pip install paho-mqtt==2.1.0
+   pip install -r requirements.txt
    ```
 
-3. Ensure you have an MQTT broker running (default expects `vault.local:1883`)
+3. Set up configuration:
+   ```bash
+   # For primary machine (runs log monitor)
+   cp .env.primary.example .env
+   
+   # For secondary machine (alert only)
+   cp .env.secondary.example .env
+   ```
+
+4. Edit the `.env` file to match your setup (see Configuration section below)
+
+5. Ensure you have an MQTT broker running (configurable via .env file)
 
 ## Usage
 
 ### Quick Start
 
-Run the complete system with default settings (alerts when switching to "studio"):
-```bash
-./start.sh
-```
+1. **Primary Machine Setup** (runs log monitor):
+   ```bash
+   # Copy and edit primary configuration
+   cp .env.primary.example .env
+   # Edit .env file - set SYNERGY_LOG_PATH and MQTT_BROKER
+   
+   # Start services
+   ./start.sh
+   ```
 
-**Note**: You'll need to modify the log path in `start.sh` to match your Synergy installation.
+2. **Secondary Machine Setup** (alert only):
+   ```bash
+   # Copy and edit secondary configuration  
+   cp .env.secondary.example .env
+   # Edit .env file - set TARGET_DESKTOP and MQTT_BROKER
+   
+   # Start alert service
+   ./start.sh
+   ```
+
+The script automatically detects the role from your `.env` file and starts the appropriate services.
 
 ### Manual Usage
 
@@ -83,21 +109,75 @@ tail -f /path/to/synergy.log | python waldo.py --broker 192.168.1.100 --topic my
 python found-him.py --broker 192.168.1.100 --topic my-synergy --client-type paho workstation
 ```
 
-## Configuration Options
+## Configuration
 
-### waldo.py (Log Monitor)
-- `--broker`: MQTT broker address (default: `vault.local`)
-- `--port`: MQTT broker port (default: `1883`)
-- `--topic`: MQTT topic to publish to (default: `synergy`)
-- `--client-type`: MQTT client type to use (default: `paho`, choices: `paho`)
+The system uses a combination of `.env` files and command-line arguments for configuration. Command-line arguments take precedence over environment variables.
 
-### found-him.py (Alert Subscriber)
-- `--broker, -b`: MQTT broker address (default: `vault.local`)
-- `--port, -p`: MQTT broker port (default: `1883`)
-- `--topic, -t`: MQTT topic to subscribe to (default: `synergy`)
+### Environment Configuration (.env files)
+
+#### Primary Machine Configuration (.env.primary.example)
+```bash
+ROLE=primary
+SYNERGY_LOG_PATH=/Users/username/Library/Logs/Synergy/synergy.log
+TARGET_DESKTOP=          # Optional: alert for this machine too
+MQTT_BROKER=localhost
+MQTT_PORT=1883
+MQTT_TOPIC=synergy
+MQTT_CLIENT_TYPE=paho
+LOG_LEVEL=ERROR
+DEBUG_MODE=false
+```
+
+#### Secondary Machine Configuration (.env.secondary.example)
+```bash
+ROLE=secondary
+TARGET_DESKTOP=studio    # Required: desktop name to monitor
+MQTT_BROKER=primary-machine.local
+MQTT_PORT=1883
+MQTT_TOPIC=synergy
+MQTT_CLIENT_TYPE=paho
+LOG_LEVEL=ERROR
+DEBUG_MODE=false
+```
+
+### Command Line Options
+
+#### waldo.py (Log Monitor)
+- `--broker`: MQTT broker address
+- `--port`: MQTT broker port  
+- `--topic`: MQTT topic to publish to
+- `--client-type`: MQTT client type (`paho`)
+- `--debug`: Enable debug logging
+
+#### found-him.py (Alert Subscriber)  
+- `--broker, -b`: MQTT broker address
+- `--port, -p`: MQTT broker port
+- `--topic, -t`: MQTT topic to subscribe to
 - `--key, -k`: JSON key to monitor (default: `current_desktop`)
-- `--client-type`: MQTT client type to use (default: `paho`, choices: `paho`)
-- `value`: Desktop name to alert on (required, e.g., "studio")
+- `--client-type`: MQTT client type (`paho`)
+- `--debug`: Enable debug logging
+- `value`: Target desktop name (required positional argument)
+
+### Multi-Machine Deployment
+
+#### Deployment Topology
+```
+Primary Machine (Synergy Server)
+├── Runs waldo.py (log monitor)
+├── Publishes desktop switch events to MQTT
+└── Optionally runs found-him.py for local alerts
+
+Secondary Machines (Synergy Clients)  
+├── Run found-him.py only
+├── Subscribe to MQTT for their specific desktop
+└── Trigger alerts when their desktop becomes active
+```
+
+#### Setup Process
+1. **Primary Machine**: Set `ROLE=primary`, configure `SYNERGY_LOG_PATH`
+2. **Secondary Machines**: Set `ROLE=secondary`, configure `TARGET_DESKTOP`
+3. **All Machines**: Point `MQTT_BROKER` to the same broker (primary or dedicated)
+4. **Run**: Execute `./start.sh` on each machine
 
 ## Message Format
 
