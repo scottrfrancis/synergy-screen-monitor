@@ -1,0 +1,1 @@
+# Test package for Synergy MQTT monitoring system

@@ -1,0 +1,115 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This is a Python-based MQTT monitoring system for Synergy (keyboard/mouse sharing software). It monitors Synergy logs and publishes desktop switching events to an MQTT broker, with a subscriber that triggers alerts when specific desktops become active.
+
+## Development Commands
+
+### Running the System
+```bash
+# Start the complete monitoring system
+./start.sh
+```
+
+### Running Components Individually
+```bash
+# Run the log monitor (requires Synergy logs piped to stdin)
+tail -f ~/Library/Logs/Synergy/synergy.log | python waldo.py
+
+# Run the alert subscriber
+python found-him.py --broker vault.local --topic synergy --key desktop --value studio
+```
+
+### Testing
+```bash
+# Run all tests
+pytest
+
+# Run tests with coverage
+pytest --cov=. --cov-report=html
+
+# Run only unit tests
+pytest -m unit
+
+# Run integration tests (requires MQTT broker)
+pytest -m integration
+```
+
+### Dependencies
+```bash
+# Install all dependencies (including development dependencies)
+pip install -r requirements.txt
+
+# Install only runtime dependencies
+pip install paho-mqtt==2.1.0
+```
+
+## Architecture
+
+The system consists of three components:
+
+1. **waldo.py** - Log monitor that reads Synergy logs from stdin and publishes desktop switching events to MQTT
+   - Extracts system names from log entries
+   - Publishes JSON messages to MQTT topic "synergy"
+   - Default broker: vault.local:1883
+
+2. **found-him.py** - MQTT subscriber that triggers alerts when specific desktop is active
+   - Cross-platform bell/beep functionality
+   - Configurable via command-line arguments
+
+3. **start.sh** - Orchestration script that launches both components
+   - Currently hardcoded to monitor for "studio" desktop
+   - Log path hardcoded to: /Users/scottfrancis/Library/Logs/Synergy/synergy.log
+
+## Key Considerations
+
+- The system uses MQTT broker at `vault.local:1883` by default
+- Log paths are currently hardcoded in start.sh and should be made configurable
+- Comprehensive testing infrastructure with pytest (run tests with `pytest`)
+- Cross-platform alert functionality is implemented for macOS, Linux, and Windows
+- All JSON messages include a timestamp field
+- Enhanced error handling and logging throughout the codebase
+- Retry logic with exponential backoff for robust operation
+- Full API documentation with docstrings for all classes and methods
+- Log rotation is handled correctly using `tail -F` (not `tail -f`) which follows the file by name
+- The log-based approach is the standard method for integrating with Synergy without modifications
+
+## Design Decisions
+
+### Why Log-Based Monitoring?
+
+After investigating multiple approaches for real-time desktop focus feedback, the log-based solution was chosen for these reasons:
+
+1. **Version Independence**: Works with any Synergy version without modification. Changes to Synergy's internal protocol, encryption, or port numbers don't affect log monitoring.
+
+2. **Cross-System Support**: MQTT enables monitoring and alerting across multiple systems on the network, not limited to a single machine.
+
+3. **No Synergy Modifications**: Synergy updates can be applied without any changes to the monitoring system.
+
+4. **Synergy Limitations**: Synergy does not provide native hooks, APIs, or configuration options for executing scripts on screen enter/leave events. The configuration file only supports keyboard shortcuts and screen layout.
+
+### Alternatives Considered and Rejected
+
+- **Direct TCP Monitoring (Port 24800)**: Would break with encryption changes or protocol updates
+- **System Event Monitoring**: Limited to single-system scope, doesn't track focus across multiple computers
+- **Synergy Config Hooks**: Not supported - Synergy lacks native event hook functionality
+- **Forking Synergy**: Creates maintenance burden and prevents easy updates
+
+## Technical Implementation Details
+
+### Log Parsing
+- Uses regex pattern `r'to "([^-]+)'` to extract desktop names from Synergy log entries
+- Monitors log lines containing "switched to" events
+
+### Log Rotation Handling
+- `start.sh` uses `tail -F` (uppercase F) which follows the file by name
+- Automatically handles when Synergy rotates logs (e.g., synergy.log → synergy.log.1)
+- Continues monitoring the new log file without interruption
+
+### MQTT Architecture
+- Enables distributed monitoring across the network
+- Publishers and subscribers can run on different systems
+- Provides reliable message delivery with QoS levels
