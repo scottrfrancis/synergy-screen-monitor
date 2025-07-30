@@ -15,6 +15,7 @@
 #include <chrono>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
 
 extern "C" {
 #include <nng/nng.h>
@@ -27,12 +28,34 @@ namespace py = pybind11;
 class NanoMQTTClient {
 private:
     nng_socket sock;
+    nng_dialer dialer;
     std::atomic<bool> connected{false};
     std::atomic<bool> running{false};
     std::string broker_url;
     std::thread worker_thread;
     std::mutex callback_mutex;
     std::function<void(const std::string&, const std::string&)> message_callback;
+    
+    // Connection tracking
+    std::condition_variable conn_cv;
+    std::mutex conn_mutex;
+    bool conn_result = false;
+    
+    // Static callback functions
+    static void connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg) {
+        NanoMQTTClient* client = static_cast<NanoMQTTClient*>(arg);
+        int reason;
+        nng_pipe_get_int(p, NNG_OPT_MQTT_CONNECT_REASON, &reason);
+        
+        std::lock_guard<std::mutex> lock(client->conn_mutex);
+        client->conn_result = (reason == 0); // 0 means success
+        client->conn_cv.notify_one();
+    }
+    
+    static void disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg) {
+        NanoMQTTClient* client = static_cast<NanoMQTTClient*>(arg);
+        client->connected.store(false);
+    }
     
 public:
     NanoMQTTClient(const std::string& broker, int port) {
@@ -57,33 +80,58 @@ public:
             return true;
         }
         
-        // Set client ID if provided using socket option
+        int rv;
+        
+        // Create dialer
+        if ((rv = nng_dialer_create(&dialer, sock, broker_url.c_str())) != 0) {
+            throw std::runtime_error("Failed to create dialer: " + std::string(nng_strerror(rv)));
+        }
+        
+        // Create CONNECT message
+        nng_msg *connmsg;
+        if ((rv = nng_mqtt_msg_alloc(&connmsg, 0)) != 0) {
+            nng_dialer_close(dialer);
+            throw std::runtime_error("Failed to allocate CONNECT message: " + std::string(nng_strerror(rv)));
+        }
+        
+        // Set up CONNECT message
+        nng_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
+        nng_mqtt_msg_set_connect_proto_version(connmsg, 4); // MQTT 3.1.1
+        nng_mqtt_msg_set_connect_keep_alive(connmsg, 60);
+        nng_mqtt_msg_set_connect_clean_session(connmsg, true);
+        
+        // Set client ID if provided
         if (!client_id.empty()) {
-            int rv = nng_socket_set_string(sock, NNG_OPT_MQTT_CLIENT_ID, client_id.c_str());
-            if (rv != 0) {
-                return false;
+            nng_mqtt_msg_set_connect_client_id(connmsg, client_id.c_str());
+        }
+        
+        // Set up connection callbacks
+        nng_mqtt_set_connect_cb(sock, connect_cb, this);
+        nng_mqtt_set_disconnect_cb(sock, disconnect_cb, this);
+        
+        // Set CONNECT message on dialer
+        nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg);
+        
+        // Start dialer
+        if ((rv = nng_dialer_start(dialer, NNG_FLAG_NONBLOCK)) != 0) {
+            nng_msg_free(connmsg);
+            nng_dialer_close(dialer);
+            throw std::runtime_error("Failed to start dialer: " + std::string(nng_strerror(rv)));
+        }
+        
+        // Wait for connection result with timeout
+        std::unique_lock<std::mutex> lock(conn_mutex);
+        if (conn_cv.wait_for(lock, std::chrono::seconds(10), [this] { return conn_result; })) {
+            if (conn_result) {
+                connected.store(true);
+                return true;
+            } else {
+                throw std::runtime_error("MQTT connection rejected by broker");
             }
+        } else {
+            nng_dialer_close(dialer);
+            throw std::runtime_error("Connection timeout");
         }
-        
-        // Set keep alive using socket option
-        nng_duration keep_alive = 60000; // 60 seconds in milliseconds
-        int rv = nng_socket_set_ms(sock, NNG_OPT_MQTT_KEEP_ALIVE, keep_alive);
-        if (rv != 0) {
-            return false;
-        }
-        
-        // Create and start dialer
-        rv = nng_dial(sock, broker_url.c_str(), nullptr, NNG_FLAG_NONBLOCK);
-        if (rv != 0) {
-            return false;
-        }
-        
-        // For MQTT, connection success is typically immediate with NNG_FLAG_NONBLOCK
-        // Wait a brief moment for the connection to establish
-        nng_msleep(500);
-        connected.store(true);
-        
-        return false;
     }
     
     void disconnect() {

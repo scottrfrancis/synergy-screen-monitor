@@ -4,13 +4,13 @@ A lightweight monitoring system that alerts you when you switch to specific comp
 
 ## What is this?
 
-If you use [Synergy](https://symless.com/synergy) to share a keyboard and mouse between multiple computers, this tool monitors your desktop switches and plays an alert sound when you switch to a specific computer. 
+If you use [Synergy](https://symless.com/synergy) to share a keyboard and mouse between multiple computers, this tool monitors your desktop switches and plays an alert sound when you switch to a specific computer.
 
 For example, if you have a "workstation" computer for audio work, this can beep when you switch to it, reminding you that your audio interface is now active.
 
 ## How it Works
 
-```
+```ini
 Synergy Logs → waldo.py → MQTT Broker → found-him.py → Alert Sound
 ```
 
@@ -37,24 +37,24 @@ This system uses log monitoring as its integration method with Synergy. This app
 ## Installation
 
 1. Clone this repository:
-   ```bash
-   git clone <repository-url>
-   cd synergy-screen-monitor
-   ```
+
+```bash
+git clone <repository-url>
+cd synergy-screen-monitor
+```
 
 2. Install the required Python packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
+
+```bash
+pip install -r requirements.txt
+```
 
 3. Set up configuration:
-   ```bash
-   # For primary machine (runs log monitor)
-   cp .env.example .env
-   
-   # For secondary machine (alert only)
-   cp .env.example .env
-   ```
+
+```bash
+# For primary machine (runs log monitor)
+cp .env.example .env
+```
 
 4. Edit the `.env` file to match your setup (see Configuration section below)
 
@@ -65,24 +65,26 @@ This system uses log monitoring as its integration method with Synergy. This app
 ### Quick Start
 
 1. **Primary Machine Setup** (runs log monitor):
-   ```bash
-   # Copy and edit primary configuration
-   cp .env.example .env
-   # Edit .env file - set SYNERGY_LOG_PATH and MQTT_BROKER
-   
-   # Start services
-   ./start.sh
-   ```
+
+```bash
+# Copy and edit primary configuration
+cp .env.example .env
+# Edit .env file - set SYNERGY_LOG_PATH and MQTT_BROKER
+
+# Start services
+./start.sh
+```
 
 2. **Secondary Machine Setup** (alert only):
-   ```bash
-   # Copy and edit secondary configuration  
-   cp .env.example .env
-   # Edit .env file - set TARGET_DESKTOP and MQTT_BROKER
-   
-   # Start alert service
-   ./start.sh
-   ```
+
+```bash
+# Copy and edit secondary configuration  
+cp .env.example .env
+# Edit .env file - set TARGET_DESKTOP and MQTT_BROKER
+
+# Start alert service
+./start.sh
+```
 
 The script automatically detects the role from your `.env` file and starts the appropriate services.
 
@@ -91,16 +93,19 @@ The script automatically detects the role from your `.env` file and starts the a
 Run components separately for testing or custom configurations:
 
 #### Monitor Synergy logs:
+
 ```bash
 tail -f ~/Library/Logs/Synergy/synergy.log | python waldo.py
 ```
 
 #### Listen for specific desktop:
+
 ```bash
 python found-him.py workstation
 ```
 
 #### Custom configuration:
+
 ```bash
 # Monitor with custom MQTT settings
 tail -f /path/to/synergy.log | python waldo.py --broker 192.168.1.100 --topic my-synergy --client-type paho
@@ -116,6 +121,7 @@ The system uses a combination of `.env` files and command-line arguments for con
 ### Environment Configuration (.env files)
 
 #### Configuration (.env.example)
+
 ```bash
 ROLE=primary
 SYNERGY_LOG_PATH=/Users/username/Library/Logs/Synergy/synergy.log
@@ -129,7 +135,9 @@ DEBUG_MODE=false
 ```
 
 #### Secondary Machine Configuration
+
 For secondary machines (alert-only), copy `.env.example` to `.env` and modify:
+
 ```bash
 ROLE=secondary
 TARGET_DESKTOP=workstation    # Required: desktop name to monitor
@@ -141,13 +149,15 @@ MQTT_CLIENT_TYPE=nanomq
 ### Command Line Options
 
 #### waldo.py (Log Monitor)
+
 - `--broker`: MQTT broker address
-- `--port`: MQTT broker port  
+- `--port`: MQTT broker port
 - `--topic`: MQTT topic to publish to
 - `--client-type`: MQTT client type (`paho`, `nanomq`)
 - `--debug`: Enable debug logging
 
-#### found-him.py (Alert Subscriber)  
+#### found-him.py (Alert Subscriber)
+
 - `--broker, -b`: MQTT broker address
 - `--port, -p`: MQTT broker port
 - `--topic, -t`: MQTT topic to subscribe to
@@ -159,7 +169,8 @@ MQTT_CLIENT_TYPE=nanomq
 ### Multi-Machine Deployment
 
 #### Deployment Topology
-```
+
+```ini
 Primary Machine (Synergy Server)
 ├── Runs waldo.py (log monitor)
 ├── Publishes desktop switch events to MQTT
@@ -172,14 +183,16 @@ Secondary Machines (Synergy Clients)
 ```
 
 #### Setup Process
-1. **Primary Machine**: Set `ROLE=primary`, configure `SYNERGY_LOG_PATH`
-2. **Secondary Machines**: Set `ROLE=secondary`, configure `TARGET_DESKTOP`
-3. **All Machines**: Point `MQTT_BROKER` to the same broker (primary or dedicated)
+
+1. __Primary Machine__: Set `ROLE=primary`, configure `SYNERGY_LOG_PATH`
+2. __Secondary Machines__: Set `ROLE=secondary`, configure `TARGET_DESKTOP`
+3. __All Machines__: Point `MQTT_BROKER` to the same broker (primary or dedicated)
 4. **Run**: Execute `./start.sh` on each machine
 
 ## Message Format
 
 The system publishes JSON messages to MQTT:
+
 ```json
 {
   "current_desktop": "workstation"
@@ -189,6 +202,7 @@ The system publishes JSON messages to MQTT:
 ## Platform Support
 
 Alert sounds work across platforms:
+
 - **macOS**: Uses `osascript` to play system beep
 - **Linux**: Uses `paplay` or falls back to terminal bell
 - **Windows**: Uses terminal bell character
@@ -196,6 +210,7 @@ Alert sounds work across platforms:
 ## Technical Details
 
 ### Log Monitoring
+
 - Uses `tail -F` (not `tail -f`) to properly handle log rotation
 - When Synergy rotates logs, monitoring continues seamlessly with the new file
 - Extracts desktop names using regex pattern `r'to "([^-]+)'` from log entries
@@ -203,6 +218,7 @@ Alert sounds work across platforms:
 ### Architecture Decisions
 
 **Alternatives Considered:**
+
 - **Direct TCP Monitoring**: Rejected - would break with Synergy encryption or protocol changes
 - **System Event Hooks**: Rejected - limited to single system, doesn't track cross-system focus
 - **Synergy Config Hooks**: Rejected - Synergy doesn't support script execution on screen events
@@ -220,6 +236,7 @@ The system uses a dependency injection framework for MQTT client selection:
 - **Factory Pattern**: Centralized client creation through `MQTTClientFactory`
 
 Current supported clients:
+
 - `paho`: Eclipse Paho MQTT Python client (default)
 - `nanomq`: NanoSDK high-performance MQTT client with QUIC support
 
@@ -232,12 +249,14 @@ The system includes support for NanoSDK, a high-performance MQTT client library 
 ### Building NanoMQ Support
 
 #### Prerequisites
+
 - CMake 3.16+
 - C++17 compatible compiler (GCC 7+, Clang 6+, MSVC 2017+)
 - Python 3.8+
 - Git (for submodules)
 
 #### Automated Build
+
 ```bash
 # Build everything automatically
 ./build.sh
@@ -250,6 +269,7 @@ The system includes support for NanoSDK, a high-performance MQTT client library 
 ```
 
 #### Manual Build
+
 ```bash
 # Install build dependencies
 pip install -r requirements.txt
@@ -282,6 +302,7 @@ MQTT_CLIENT_TYPE=nanomq
 ### Performance Benefits
 
 NanoMQ provides significant performance improvements:
+
 - **10x faster** than Paho on multi-core systems
 - **Ultra-low latency** with MQTT over QUIC support
 - **Better scalability** with async I/O design
@@ -301,28 +322,33 @@ NanoMQ provides significant performance improvements:
 ## Troubleshooting
 
 ### No alerts when switching desktops
+
 1. Check MQTT broker is running: `mosquitto_sub -h vault.local -t synergy`
 2. Verify Synergy is logging desktop switches
 3. Ensure log file path is correct in `start.sh`
 4. **Log rotation**: If alerts stop working after time, check if Synergy rotated logs - `start.sh` uses `tail -F` to handle this automatically
 
 ### Connection refused errors
+
 - Verify MQTT broker address and port
 - Check firewall settings
 - Ensure MQTT broker allows connections from your host
 
 ### No sound on alerts
+
 - macOS: Check system sound is not muted
 - Linux: Ensure `paplay` is installed or terminal bell is enabled
 - Windows: Enable system sounds
 
 ### NanoMQ Client Issues
+
 - **Import Error**: Run `./build.sh` to build the NanoMQ bindings
 - **Build Failures**: Ensure CMake 3.16+ and C++17 compiler are installed
 - **Submodule Missing**: Run `git submodule update --init --recursive`
 - **Permission Errors**: May need developer tools on macOS: `xcode-select --install`
 
 ### Version Compatibility
+
 - This system works with all Synergy versions that write desktop switch events to logs
 - Log format changes are handled by the regex pattern matching
 - No modifications to Synergy itself are required
@@ -330,7 +356,9 @@ NanoMQ provides significant performance improvements:
 ## Examples
 
 ### Monitor multiple desktops
+
 Run multiple instances of `found-him.py`:
+
 ```bash
 python found-him.py workstation &
 python found-him.py workstation &
@@ -338,10 +366,13 @@ python found-him.py laptop &
 ```
 
 ### Different alerts for different desktops
+
 Modify `found-him.py` to play different sounds based on the desktop name.
 
 ### Integration with other systems
+
 Since this uses MQTT, you can integrate with:
+
 - Home automation systems
 - Logging services
 - Custom notification systems
