@@ -8,7 +8,9 @@ set -e  # Exit on any error
 # Load environment variables from .env file if it exists
 if [ -f ".env" ]; then
     echo "Loading configuration from .env file..."
-    export $(grep -v '^#' .env | xargs)
+    set -a  # Enable auto-export
+    source .env
+    set +a  # Disable auto-export
 else
     echo "Warning: .env file not found. Using defaults or environment variables."
 fi
@@ -33,20 +35,19 @@ echo "MQTT Topic: $MQTT_TOPIC"
 # Function to start services with proper error handling
 start_service() {
     local service_name="$1"
-    local command="$2"
-    local background="$3"
+    local background="$2"
+    shift 2
+    local command=("$@")
     
     echo "Starting $service_name..."
     
     if [ "$background" = "true" ]; then
-        if ! eval "$command > /dev/null 2>&1 &"; then
-            echo "ERROR: Failed to start $service_name"
-            exit 1
-        fi
-        echo "$service_name started in background (PID: $!)"
+        "${command[@]}" > /dev/null 2>&1 &
+        local pid=$!
+        echo "$service_name started in background (PID: $pid)"
     else
         echo "Starting $service_name in foreground..."
-        if ! eval "$command"; then
+        if ! "${command[@]}"; then
             echo "ERROR: $service_name failed"
             exit 1
         fi
@@ -75,19 +76,21 @@ if [ "$ROLE" = "primary" ]; then
     # Start local alert service if target desktop is specified
     if [ -n "$TARGET_DESKTOP" ] && [ "$TARGET_DESKTOP" != "" ]; then
         echo "Starting local alert service for desktop: $TARGET_DESKTOP"
-        local_alert_cmd="python3 ./found-him.py '$TARGET_DESKTOP' --broker '$MQTT_BROKER' --port '$MQTT_PORT' --topic '$MQTT_TOPIC' --client-type '$MQTT_CLIENT_TYPE'"
+        local_alert_args=(python3 ./found-him.py "$TARGET_DESKTOP" --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
         if [ "$DEBUG_MODE" = "true" ]; then
-            local_alert_cmd="$local_alert_cmd --debug"
+            local_alert_args+=(--debug)
         fi
-        start_service "Local Alert Service" "$local_alert_cmd" "true"
+        start_service "Local Alert Service" "true" "${local_alert_args[@]}"
     fi
     
     # Start log monitor (foreground)
-    waldo_cmd="tail -F '$SYNERGY_LOG_PATH' | python3 ./waldo.py --broker '$MQTT_BROKER' --port '$MQTT_PORT' --topic '$MQTT_TOPIC' --client-type '$MQTT_CLIENT_TYPE'"
+    waldo_args=(python3 ./waldo.py --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
     if [ "$DEBUG_MODE" = "true" ]; then
-        waldo_cmd="tail -F '$SYNERGY_LOG_PATH' | python3 ./waldo.py --broker '$MQTT_BROKER' --port '$MQTT_PORT' --topic '$MQTT_TOPIC' --client-type '$MQTT_CLIENT_TYPE' --debug"
+        waldo_args+=(--debug)
     fi
-    start_service "Log Monitor Service (Waldo)" "$waldo_cmd" "false"
+    
+    echo "Starting Log Monitor Service (Waldo) in foreground..."
+    tail -F "$SYNERGY_LOG_PATH" | "${waldo_args[@]}"
     
 elif [ "$ROLE" = "secondary" ]; then
     echo "=== SECONDARY MODE: Running alert service only ==="
@@ -103,11 +106,11 @@ elif [ "$ROLE" = "secondary" ]; then
     echo "Monitoring for desktop: $TARGET_DESKTOP"
     
     # Start alert service (foreground)
-    found_him_cmd="python3 ./found-him.py '$TARGET_DESKTOP' --broker '$MQTT_BROKER' --port '$MQTT_PORT' --topic '$MQTT_TOPIC' --client-type '$MQTT_CLIENT_TYPE'"
+    found_him_args=(python3 ./found-him.py "$TARGET_DESKTOP" --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
     if [ "$DEBUG_MODE" = "true" ]; then
-        found_him_cmd="$found_him_cmd --debug"
+        found_him_args+=(--debug)
     fi
-    start_service "Alert Service (Found-Him)" "$found_him_cmd" "false"
+    start_service "Alert Service (Found-Him)" "false" "${found_him_args[@]}"
     
 else
     echo "ERROR: Invalid ROLE: $ROLE"

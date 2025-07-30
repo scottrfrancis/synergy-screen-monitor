@@ -50,19 +50,19 @@ class Config:
         """Get default Synergy log path based on platform."""
         home = Path.home()
         
-        # macOS
-        if os.name == 'posix' and os.uname().sysname == 'Darwin':
-            return str(home / 'Library' / 'Logs' / 'Synergy' / 'synergy.log')
-        
-        # Windows
-        elif os.name == 'nt':
+        # Windows (check first as os.uname() is not available on Windows)
+        if os.name == 'nt':
             return str(home / 'AppData' / 'Local' / 'Synergy' / 'synergy.log')
+        
+        # macOS
+        elif os.name == 'posix' and hasattr(os, 'uname') and os.uname().sysname == 'Darwin':
+            return str(home / 'Library' / 'Logs' / 'Synergy' / 'synergy.log')
         
         # Linux and other Unix-like systems
         else:
             return str(home / '.local' / 'share' / 'synergy' / 'synergy.log')
     
-    SYNERGY_LOG_PATH = os.getenv('SYNERGY_LOG_PATH', _get_default_synergy_log_path())
+    SYNERGY_LOG_PATH = os.getenv('SYNERGY_LOG_PATH', _get_default_synergy_log_path.__func__())
     
     # === Target Desktop Configuration ===
     # Default to hostname for convenience, can be overridden
