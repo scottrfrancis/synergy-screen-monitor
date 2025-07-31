@@ -40,6 +40,7 @@ private:
     std::condition_variable conn_cv;
     std::mutex conn_mutex;
     bool conn_result = false;
+    bool conn_callback_called = false;
     
     // Static callback functions
     static void connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg) {
@@ -49,6 +50,7 @@ private:
         
         std::lock_guard<std::mutex> lock(client->conn_mutex);
         client->conn_result = (reason == 0); // 0 means success
+        client->conn_callback_called = true;
         client->conn_cv.notify_one();
     }
     
@@ -121,7 +123,7 @@ public:
         
         // Wait for connection result with timeout
         std::unique_lock<std::mutex> lock(conn_mutex);
-        if (conn_cv.wait_for(lock, std::chrono::seconds(10), [this] { return conn_result; })) {
+        if (conn_cv.wait_for(lock, std::chrono::seconds(10), [this] { return conn_callback_called; })) {
             if (conn_result) {
                 connected.store(true);
                 return true;

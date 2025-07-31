@@ -205,7 +205,7 @@ class TestNanoMQTTSubscriber:
         subscriber = NanoMQTTSubscriber("test.broker", 1883, "test/topic", "desktop", "workstation", bell_func)
         
         # Simulate receiving a non-matching message
-        test_payload = '{"desktop": "workstation", "timestamp": "2025-01-01T12:00:00"}'
+        test_payload = '{"desktop": "laptop", "timestamp": "2025-01-01T12:00:00"}'
         subscriber._on_message("test/topic", test_payload)
         
         bell_func.assert_not_called()

@@ -98,8 +98,9 @@ build_nanosdk() {
         -DNNG_TOOLS=OFF \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     
-    # Build
-    cmake --build . --config Release --parallel $(nproc 2>/dev/null || echo 4)
+    # Build with portable CPU detection
+    CPU_COUNT=$(python3 -c "import os; print(os.cpu_count() or 4)" 2>/dev/null || echo 4)
+    cmake --build . --config Release --parallel $CPU_COUNT
     
     cd ..
     print_status "NanoSDK build completed"

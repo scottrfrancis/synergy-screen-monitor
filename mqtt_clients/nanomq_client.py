@@ -80,12 +80,9 @@ class NanoMQTTPublisher(MQTTPublisherInterface):
         """
         while not self.connected:
             try:
-                # Generate unique client ID
-                client_id = f"synergy-waldo-{os.getpid()}-{int(time.time())}"
-                
                 logger.info(f"Attempting to connect to {self.broker_address}:{self.port}")
                 
-                if self.client.connect(client_id):
+                if self.client.connect():
                     self.connected = True
                     self.reconnect_delay = 1  # Reset delay on successful connection
                     logger.info("Successfully connected to MQTT broker")
