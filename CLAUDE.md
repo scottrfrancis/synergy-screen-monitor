@@ -20,7 +20,7 @@ This is a Python-based MQTT monitoring system for Synergy (keyboard/mouse sharin
 tail -f ~/Library/Logs/Synergy/synergy.log | python waldo.py
 
 # Run the alert subscriber
-python found-him.py --broker vault.local --topic synergy --key desktop --value studio
+python found-him.py --broker localhost --topic synergy --key desktop --value workstation
 ```
 
 ### Testing
@@ -54,19 +54,19 @@ The system consists of three components:
 1. **waldo.py** - Log monitor that reads Synergy logs from stdin and publishes desktop switching events to MQTT
    - Extracts system names from log entries
    - Publishes JSON messages to MQTT topic "synergy"
-   - Default broker: vault.local:1883
+   - Default broker: localhost:1883
 
 2. **found-him.py** - MQTT subscriber that triggers alerts when specific desktop is active
    - Cross-platform bell/beep functionality
    - Configurable via command-line arguments
 
 3. **start.sh** - Orchestration script that launches both components
-   - Currently hardcoded to monitor for "studio" desktop
+   - Currently hardcoded to monitor for "workstation" desktop
    - Log path hardcoded to: /Users/scottfrancis/Library/Logs/Synergy/synergy.log
 
 ## Key Considerations
 
-- The system uses MQTT broker at `vault.local:1883` by default
+- The system uses MQTT broker at `localhost:1883` by default
 - Log paths are currently hardcoded in start.sh and should be made configurable
 - Comprehensive testing infrastructure with pytest (run tests with `pytest`)
 - Cross-platform alert functionality is implemented for macOS, Linux, and Windows
@@ -129,11 +129,62 @@ mqtt_clients/
 └── factory.py           # Client factory
 ```
 
+#### Current Client Implementations:
+- **Paho Client**: Standard Python MQTT client (default)
+- **NanoMQ Client**: High-performance C++ client with Python bindings via pybind11
+
 #### Adding New Client Types:
 1. Implement `MQTTPublisherInterface` and `MQTTSubscriberInterface`
 2. Add new client type to `MQTTClientFactory.SUPPORTED_CLIENTS`
 3. Update factory methods to handle new client type
 4. CLI arguments automatically support new client types
+
+## NanoMQ Integration
+
+### Architecture Overview
+The NanoMQ integration consists of three layers:
+1. **NanoSDK C Library**: High-performance MQTT implementation
+2. **Python Bindings**: C++ extension using pybind11
+3. **Python Client Classes**: Interface-compliant wrappers
+
+### Build System
+```
+CMakeLists.txt           # NanoSDK build configuration
+setup.py                 # Python extension build
+build.sh                 # Automated build script
+external/nanosdk/        # Git submodule
+```
+
+### Key Components
+
+#### C++ Extension (`mqtt_clients/nanomq_bindings.cpp`)
+- Uses pybind11 for Python-C++ integration
+- Wraps NanoSDK MQTT client functionality
+- Provides thread-safe message handling
+- Implements connection management with retry logic
+
+#### Python Client Classes (`mqtt_clients/nanomq_client.py`)
+- `NanoMQTTPublisher`: High-performance message publishing
+- `NanoMQTTSubscriber`: Efficient message subscription with callbacks
+- Full interface compliance with existing Paho implementation
+- Graceful fallback when bindings are unavailable
+
+#### Factory Integration
+- Runtime client selection via `--client-type nanomq`
+- Automatic availability detection
+- Seamless switching between Paho and NanoMQ clients
+
+### Build Process
+1. **Git Submodule**: NanoSDK integrated as external dependency
+2. **CMake Build**: Compiles NanoSDK with optimized settings
+3. **Python Extension**: pybind11 creates Python-accessible bindings
+4. **Automated Testing**: Validates build and functionality
+
+### Performance Benefits
+- **10x Performance**: Faster than Paho on multi-core systems
+- **QUIC Support**: Ultra-low latency transport protocol
+- **Async I/O**: Fully asynchronous with multi-threading
+- **0-RTT Reconnection**: Fast connection recovery
 
 ## Configuration Management
 

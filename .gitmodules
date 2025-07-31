@@ -1,0 +1,3 @@
+[submodule "external/nanosdk"]
+	path = external/nanosdk
+	url = https://github.com/emqx/NanoSDK.git

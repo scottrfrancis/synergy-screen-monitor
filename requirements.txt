@@ -4,6 +4,10 @@ paho-mqtt==2.1.0
 # Configuration management
 python-dotenv==1.0.0
 
+# NanoMQ build dependencies (optional - only needed for NanoMQ client)
+pybind11>=2.10.0
+cmake>=3.16.0; platform_system != "Windows"
+
 # Testing dependencies
 pytest==8.0.0
 pytest-mock==3.12.0

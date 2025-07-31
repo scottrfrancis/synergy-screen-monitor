@@ -20,9 +20,18 @@ ROLE=${ROLE:-"secondary"}
 MQTT_BROKER=${MQTT_BROKER:-"localhost"}
 MQTT_PORT=${MQTT_PORT:-"1883"}
 MQTT_TOPIC=${MQTT_TOPIC:-"synergy"}
-MQTT_CLIENT_TYPE=${MQTT_CLIENT_TYPE:-"paho"}
+MQTT_CLIENT_TYPE=${MQTT_CLIENT_TYPE:-"nanomq"}
 LOG_DIR=${LOG_DIR:-"./logs"}
 DEBUG_MODE=${DEBUG_MODE:-"false"}
+
+# Validate NanoMQ availability if selected
+if [ "$MQTT_CLIENT_TYPE" = "nanomq" ]; then
+    if ! python3 -c "import nanomq_bindings" 2>/dev/null; then
+        echo "Warning: NanoMQ bindings not available. Falling back to Paho client."
+        echo "To build NanoMQ support, run: ./build.sh"
+        MQTT_CLIENT_TYPE="paho"
+    fi
+fi
 
 # Ensure logs directory exists
 mkdir -p "$LOG_DIR"
@@ -31,6 +40,7 @@ echo "=== Synergy Screen Monitor ==="
 echo "Role: $ROLE"
 echo "MQTT Broker: $MQTT_BROKER:$MQTT_PORT"
 echo "MQTT Topic: $MQTT_TOPIC"
+echo "MQTT Client: $MQTT_CLIENT_TYPE"
 
 # Function to start services with proper error handling
 start_service() {
@@ -99,7 +109,7 @@ elif [ "$ROLE" = "secondary" ]; then
     if [ -z "$TARGET_DESKTOP" ] || [ "$TARGET_DESKTOP" = "" ]; then
         echo "ERROR: TARGET_DESKTOP must be set for secondary machines"
         echo "Please set TARGET_DESKTOP in your .env file or environment"
-        echo "Example: TARGET_DESKTOP=studio"
+        echo "Example: TARGET_DESKTOP=workstation"
         exit 1
     fi
     

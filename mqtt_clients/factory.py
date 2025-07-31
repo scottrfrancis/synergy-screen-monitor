@@ -20,9 +20,10 @@ class MQTTClientFactory:
     
     Supported client types:
     - paho: Eclipse Paho MQTT client (default)
+    - nanomq: NanoSDK high-performance MQTT client
     """
     
-    SUPPORTED_CLIENTS = ['paho']
+    SUPPORTED_CLIENTS = ['paho', 'nanomq']
     DEFAULT_CLIENT = 'paho'
     
     @staticmethod
@@ -31,7 +32,7 @@ class MQTTClientFactory:
         Create an MQTT publisher instance.
         
         Args:
-            client_type: Type of MQTT client to create ('paho')
+            client_type: Type of MQTT client to create ('paho', 'nanomq')
             broker_address: MQTT broker hostname or IP address
             port: MQTT broker port number
             topic: MQTT topic to publish messages to
@@ -49,6 +50,9 @@ class MQTTClientFactory:
         if client_type == 'paho':
             from .paho_client import PahoMQTTPublisher
             return PahoMQTTPublisher(broker_address, port, topic)
+        elif client_type == 'nanomq':
+            from .nanomq_client import NanoMQTTPublisher
+            return NanoMQTTPublisher(broker_address, port, topic)
         
         # This should never be reached due to the check above, but just in case
         raise ValueError(f"Unknown client type: {client_type}")
@@ -60,7 +64,7 @@ class MQTTClientFactory:
         Create an MQTT subscriber instance.
         
         Args:
-            client_type: Type of MQTT client to create ('paho')
+            client_type: Type of MQTT client to create ('paho', 'nanomq')
             broker: MQTT broker hostname or IP address
             port: MQTT broker port number
             topic: MQTT topic to subscribe to
@@ -81,6 +85,9 @@ class MQTTClientFactory:
         if client_type == 'paho':
             from .paho_client import PahoMQTTSubscriber
             return PahoMQTTSubscriber(broker, port, topic, key, value, bell_func)
+        elif client_type == 'nanomq':
+            from .nanomq_client import NanoMQTTSubscriber
+            return NanoMQTTSubscriber(broker, port, topic, key, value, bell_func)
         
         # This should never be reached due to the check above, but just in case
         raise ValueError(f"Unknown client type: {client_type}")
