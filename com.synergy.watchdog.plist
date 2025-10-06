@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service Label (unique identifier) -->
+    <key>Label</key>
+    <string>com.synergy.watchdog</string>
+
+    <!-- Program to run -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>/Volumes/workspace/Synergy/watchdog.sh</string>
+    </array>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Volumes/workspace/Synergy</string>
+
+    <!-- Run at load (start immediately when loaded) -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep the service alive (restart if it crashes) -->
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Only restart on crashes, not normal exits -->
+        <key>SuccessfulExit</key>
+        <false/>
+        <!-- Don't restart if network isn't available -->
+        <key>NetworkState</key>
+        <true/>
+    </dict>
+
+    <!-- Standard output log -->
+    <key>StandardOutPath</key>
+    <string>/Volumes/workspace/Synergy/logs/watchdog_stdout.log</string>
+
+    <!-- Standard error log -->
+    <key>StandardErrorPath</key>
+    <string>/Volumes/workspace/Synergy/logs/watchdog_stderr.log</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Throttle restart attempts (10 seconds between restarts) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Nice priority (0 = normal, lower = higher priority) -->
+    <key>Nice</key>
+    <integer>0</integer>
+
+    <!-- Process type -->
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

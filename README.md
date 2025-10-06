@@ -88,6 +88,48 @@ cp .env.example .env
 
 The script automatically detects the role from your `.env` file and starts the appropriate services.
 
+### Automatic Service Management with Watchdog
+
+For production use, install the watchdog service to automatically recover from failures:
+
+```bash
+# Install watchdog as a launchd service (runs at login)
+./install-watchdog.sh
+
+# The watchdog will:
+# - Start automatically at login
+# - Monitor service health every 30 seconds
+# - Automatically restart failed services
+# - Wait for MQTT broker recovery before restarting
+# - Prevent restart loops with throttling
+
+# View watchdog logs
+tail -f logs/watchdog.log
+
+# Uninstall watchdog service
+./uninstall-watchdog.sh
+```
+
+**Benefits:**
+- Automatic recovery from broker crashes
+- Automatic recovery from service crashes
+- Prevents orphaned processes
+- Logs all restart attempts
+- Restart throttling (max 3 restarts per 5 minutes)
+
+### Manual Service Control
+
+```bash
+# Stop all services
+./stop.sh
+
+# Start services manually (without watchdog)
+./start.sh
+
+# Restart everything
+./stop.sh && ./start.sh
+```
+
 ### Manual Usage
 
 Run components separately for testing or custom configurations:
@@ -132,6 +174,12 @@ MQTT_TOPIC=synergy
 MQTT_CLIENT_TYPE=nanomq
 LOG_LEVEL=ERROR
 DEBUG_MODE=false
+
+# Watchdog Configuration (optional)
+WATCHDOG_CHECK_INTERVAL=30        # Health check interval (seconds)
+WATCHDOG_MAX_RESTARTS=3           # Max restarts within window
+WATCHDOG_RESTART_WINDOW=300       # Restart window (seconds)
+WATCHDOG_BROKER_TIMEOUT=5         # Broker check timeout (seconds)
 ```
 
 #### Secondary Machine Configuration
@@ -346,6 +394,36 @@ NanoMQ provides significant performance improvements:
 - **Build Failures**: Ensure CMake 3.16+ and C++17 compiler are installed
 - **Submodule Missing**: Run `git submodule update --init --recursive`
 - **Permission Errors**: May need developer tools on macOS: `xcode-select --install`
+
+### Watchdog Issues
+
+**Watchdog not starting services:**
+1. Check watchdog logs: `tail -f logs/watchdog.log`
+2. Verify broker is reachable: `nc -zv your-broker-host 1883`
+3. Check for restart throttling (too many restarts in 5 minutes)
+4. Manual recovery: `./stop.sh && ./start.sh`
+
+**Too many restarts:**
+- Watchdog throttles after 3 restarts in 5 minutes
+- This prevents restart loops from persistent problems
+- Check logs to identify root cause: `tail -100 logs/watchdog.log`
+- Fix the underlying issue (broker down, config error, etc.)
+
+**Check watchdog status:**
+```bash
+# Is watchdog running?
+launchctl list | grep synergy.watchdog
+
+# View recent activity
+tail -30 logs/watchdog.log
+
+# Manually trigger restart
+launchctl kickstart -k gui/$(id -u)/com.synergy.watchdog
+```
+
+**Multiple orphaned processes after macOS upgrade:**
+- Run `./stop.sh` to clean up all processes
+- Restart watchdog: `launchctl kickstart -k gui/$(id -u)/com.synergy.watchdog`
 
 ### Version Compatibility
 

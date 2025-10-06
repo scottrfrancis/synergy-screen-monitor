@@ -36,6 +36,17 @@ fi
 # Ensure logs directory exists
 mkdir -p "$LOG_DIR"
 
+# Stop any existing instances before starting new ones
+echo "Checking for existing service instances..."
+WALDO_PIDS=$(pgrep -f "python3 ./waldo.py" || true)
+FOUND_HIM_PIDS=$(pgrep -f "python3 ./found-him.py" || true)
+
+if [ -n "$WALDO_PIDS" ] || [ -n "$FOUND_HIM_PIDS" ]; then
+    echo "Found running services. Stopping them first..."
+    ./stop.sh
+    sleep 2
+fi
+
 echo "=== Synergy Screen Monitor ==="
 echo "Role: $ROLE"
 echo "MQTT Broker: $MQTT_BROKER:$MQTT_PORT"
