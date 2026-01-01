@@ -8,6 +8,7 @@ These classes implement the abstract interfaces defined in interface.py.
 import sys
 import os
 import time
+import json
 import logging
 import platform
 import subprocess
@@ -50,6 +51,9 @@ class PahoMQTTPublisher(MQTTPublisherInterface):
         self.connected = False
         self.reconnect_delay = 1
         self.max_reconnect_delay = 60
+        # Self-healing: track consecutive failure duration
+        self.first_failure_time = None
+        self.max_failure_duration = int(os.getenv('CLIENT_MAX_FAILURE_DURATION', 300))  # 5 minutes default
         
     def on_connect(self, client, userdata, flags, reason_code, properties):
         """
@@ -80,14 +84,43 @@ class PahoMQTTPublisher(MQTTPublisherInterface):
             properties: MQTT v5.0 properties (unused for v3.x)
         """
         self.connected = False
-    
+
+    def _check_network_health(self) -> bool:
+        """
+        Test if network is actually up using a fresh subprocess.
+
+        This spawns a new Python process to test socket connectivity,
+        which gets fresh OS socket state. If this succeeds but the main
+        process fails, we know the main process is stuck.
+
+        Returns:
+            bool: True if subprocess can connect to broker, False otherwise
+        """
+        try:
+            result = subprocess.run(
+                ['python3', '-c', f'''
+import socket
+s = socket.create_connection(("{self.broker_address}", {self.port}), timeout=5)
+s.close()
+print("OK")
+'''],
+                capture_output=True, text=True, timeout=10
+            )
+            return "OK" in result.stdout
+        except Exception as e:
+            logger.debug(f"Network health check failed: {e}")
+            return False
+
     def connect_with_retry(self) -> bool:
         """
         Attempt to connect to MQTT broker with exponential backoff.
-        
+
         This method will retry indefinitely until a successful connection is made.
         It only returns True on success and does not return on failure.
-        
+
+        Includes self-healing logic: if connection fails for too long but network
+        is actually up (verified by subprocess), exits to allow watchdog restart.
+
         Returns:
             bool: True when successfully connected (never returns False)
         """
@@ -96,33 +129,54 @@ class PahoMQTTPublisher(MQTTPublisherInterface):
                 self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
                 self.client.on_connect = self.on_connect
                 self.client.on_disconnect = self.on_disconnect
-                
+
                 # Enable automatic reconnection
                 self.client.reconnect_delay_set(min_delay=1, max_delay=120)
-                
+
                 logger.info(f"Attempting to connect to {self.broker_address}:{self.port}")
                 self.client.connect(self.broker_address, self.port, keepalive=60)
                 self.client.loop_start()
-                
+
                 # Wait for connection
                 timeout = 10
                 start_time = time.time()
                 while not self.connected and (time.time() - start_time) < timeout:
                     time.sleep(0.1)
-                
+
                 if self.connected:
+                    self.first_failure_time = None  # Reset on successful connection
                     logger.info("Successfully connected to MQTT broker")
                     return True
                 else:
                     raise Exception("Connection timeout")
-                    
+
             except Exception as e:
+                # Track failure start time for self-healing
+                if self.first_failure_time is None:
+                    self.first_failure_time = time.time()
+
+                failure_duration = time.time() - self.first_failure_time
+
+                # Self-healing: after prolonged failures, check if network is actually up
+                if failure_duration > self.max_failure_duration:
+                    logger.warning(f"Connection failing for {failure_duration:.0f}s, checking network health...")
+
+                    if self._check_network_health():
+                        logger.error(
+                            "Network is up but client is stuck. Exiting for watchdog restart. "
+                            "If watchdog is not running, manually restart with: ./stop.sh && ./start-all.sh"
+                        )
+                        sys.exit(1)  # Exit for watchdog to restart with fresh state
+                    else:
+                        logger.info("Network still down, resetting failure timer and continuing to retry")
+                        self.first_failure_time = time.time()  # Reset timer since network is actually down
+
                 logger.warning(f"Connection failed: {e}. Retrying in {self.reconnect_delay} seconds")
                 time.sleep(self.reconnect_delay)
-                
+
                 # Exponential backoff
                 self.reconnect_delay = min(self.reconnect_delay * 2, self.max_reconnect_delay)
-                
+
                 if self.client:
                     try:
                         self.client.loop_stop()
@@ -192,10 +246,10 @@ class PahoMQTTSubscriber(MQTTSubscriberInterface):
         last_message_time: Timestamp of last received message
     """
     
-    def __init__(self, broker: str, port: int, topic: str, key: str, value: str, bell_func):
+    def __init__(self, broker: str, port: int, topic: str, key: str, value: str, bell_func, quiet: bool = False):
         """
         Initialize the MQTT subscriber.
-        
+
         Args:
             broker: MQTT broker hostname or IP address
             port: MQTT broker port number
@@ -203,6 +257,7 @@ class PahoMQTTSubscriber(MQTTSubscriberInterface):
             key: JSON key to monitor in messages
             value: Value to match for the specified key
             bell_func: Function to call when a match is found
+            quiet: If True, suppress match notification output (bell still sounds)
         """
         self.broker = broker
         self.port = port
@@ -210,6 +265,7 @@ class PahoMQTTSubscriber(MQTTSubscriberInterface):
         self.key = key
         self.value = value
         self.bell_func = bell_func
+        self.quiet = quiet
         self.client = None
         self.connected = False
         self.reconnect_delay = 1
@@ -292,8 +348,9 @@ class PahoMQTTSubscriber(MQTTSubscriberInterface):
                 # Ring terminal bell
                 if self.bell_func:
                     self.bell_func()
-                
-                print(f"Match found! {self.key} = {payload[self.key]}")
+
+                if not self.quiet:
+                    print(f"Match found! {self.key} = {payload[self.key]}")
         
         except json.JSONDecodeError:
             logger.debug(f"Failed to parse JSON message: {msg.payload}")

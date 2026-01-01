@@ -58,11 +58,12 @@ class MQTTClientFactory:
         raise ValueError(f"Unknown client type: {client_type}")
     
     @staticmethod
-    def create_subscriber(client_type: str, broker: str, port: int, topic: str, 
-                         key: str, value: str, bell_func: Optional[Callable] = None) -> MQTTSubscriberInterface:
+    def create_subscriber(client_type: str, broker: str, port: int, topic: str,
+                         key: str, value: str, bell_func: Optional[Callable] = None,
+                         quiet: bool = False) -> MQTTSubscriberInterface:
         """
         Create an MQTT subscriber instance.
-        
+
         Args:
             client_type: Type of MQTT client to create ('paho', 'nanomq')
             broker: MQTT broker hostname or IP address
@@ -71,24 +72,25 @@ class MQTTClientFactory:
             key: JSON key to monitor in messages
             value: Value to match for the specified key
             bell_func: Function to call when a match is found (optional)
-            
+            quiet: If True, suppress match notification output (bell still sounds)
+
         Returns:
             MQTTSubscriberInterface: Subscriber instance
-            
+
         Raises:
             ValueError: If client_type is not supported
         """
         if client_type not in MQTTClientFactory.SUPPORTED_CLIENTS:
             raise ValueError(f"Unsupported client type: {client_type}. "
                            f"Supported types: {MQTTClientFactory.SUPPORTED_CLIENTS}")
-        
+
         if client_type == 'paho':
             from .paho_client import PahoMQTTSubscriber
-            return PahoMQTTSubscriber(broker, port, topic, key, value, bell_func)
+            return PahoMQTTSubscriber(broker, port, topic, key, value, bell_func, quiet)
         elif client_type == 'nanomq':
             from .nanomq_client import NanoMQTTSubscriber
-            return NanoMQTTSubscriber(broker, port, topic, key, value, bell_func)
-        
+            return NanoMQTTSubscriber(broker, port, topic, key, value, bell_func, quiet)
+
         # This should never be reached due to the check above, but just in case
         raise ValueError(f"Unknown client type: {client_type}")
     

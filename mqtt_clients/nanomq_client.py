@@ -163,10 +163,10 @@ class NanoMQTTSubscriber(MQTTSubscriberInterface):
         message_thread: Thread for message processing
     """
     
-    def __init__(self, broker: str, port: int, topic: str, key: str, value: str, bell_func: Optional[Callable]):
+    def __init__(self, broker: str, port: int, topic: str, key: str, value: str, bell_func: Optional[Callable], quiet: bool = False):
         """
         Initialize the MQTT subscriber.
-        
+
         Args:
             broker: MQTT broker hostname or IP address
             port: MQTT broker port number
@@ -174,20 +174,22 @@ class NanoMQTTSubscriber(MQTTSubscriberInterface):
             key: JSON key to monitor in messages
             value: Value to match for the specified key
             bell_func: Function to call when a match is found
-            
+            quiet: If True, suppress match notification output (bell still sounds)
+
         Raises:
             RuntimeError: If NanoMQ bindings are not available
         """
         if not NANOMQ_AVAILABLE:
             raise RuntimeError("NanoMQ bindings are not available. "
                              "Please build the extension with: pip install -e .[build]")
-        
+
         self.broker = broker
         self.port = port
         self.topic = topic
         self.key = key
         self.value = value
         self.bell_func = bell_func
+        self.quiet = quiet
         self.connected = False
         self.running = False
         self.reconnect_delay = 1
@@ -241,8 +243,9 @@ class NanoMQTTSubscriber(MQTTSubscriberInterface):
                 # Ring terminal bell
                 if self.bell_func:
                     self.bell_func()
-                
-                print(f"Match found! {self.key} = {data[self.key]}")
+
+                if not self.quiet:
+                    print(f"Match found! {self.key} = {data[self.key]}")
         
         except json.JSONDecodeError:
             logger.debug(f"Failed to parse JSON message: {payload}")

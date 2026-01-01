@@ -49,7 +49,7 @@ WALDO_PID=$!
 
 # Start found-him (alert) in background if TARGET_DESKTOP is set
 if [ -n "$TARGET_DESKTOP" ]; then
-    python3 ./found-him.py "$TARGET_DESKTOP" --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE" 2>/dev/null &
+    python3 ./found-him.py "$TARGET_DESKTOP" --quiet --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE" 2>/dev/null &
     FOUND_HIM_PID=$!
 fi
 

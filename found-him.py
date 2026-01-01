@@ -55,7 +55,9 @@ def main():
                         help=f'MQTT client type to use (default: {Config.MQTT_CLIENT_TYPE})')
     parser.add_argument('--debug', action='store_true', default=Config.DEBUG_MODE,
                         help='Enable debug logging')
-    
+    parser.add_argument('-q', '--quiet', action='store_true',
+                        help='Suppress match notification output (bell still sounds)')
+
     args = parser.parse_args()
     
     # Override config with CLI arguments (CLI takes precedence)
@@ -86,7 +88,8 @@ def main():
         topic=args.topic,
         key=args.key,
         value=args.value,
-        bell_func=None
+        bell_func=None,
+        quiet=args.quiet
     )
     
     # Set bell function
