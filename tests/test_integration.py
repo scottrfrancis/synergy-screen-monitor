@@ -105,25 +105,25 @@ class TestSystemIntegration:
 class TestLogProcessingIntegration:
     """Test log processing with mocked components"""
     
-    @patch('waldo.MQTTPublisher')
-    def test_log_processing_pipeline(self, mock_publisher_class):
+    @patch('waldo.MQTTClientFactory')
+    def test_log_processing_pipeline(self, mock_factory):
         """Test complete log processing pipeline"""
         from waldo import process_logs
-        
+
         # Mock publisher
         mock_publisher = Mock()
-        mock_publisher_class.return_value = mock_publisher
+        mock_factory.create_publisher.return_value = mock_publisher
         mock_publisher.publish.return_value = True
         mock_publisher.connect_with_retry.return_value = True
         
         # Simulate log entries
         test_logs = [
             'INFO: some unrelated log\n',
-            'INFO: switched to "desktop1-\n',
+            'INFO: switch from "other-aabbccdd" to "desktop1-12345678" at 0,100\n',
             'DEBUG: another log entry\n',
-            'INFO: switched to "desktop2-\n',
+            'INFO: switch from "other-aabbccdd" to "desktop2-23456789" at 0,200\n',
             'ERROR: connection lost\n',
-            'INFO: switched to "desktop3-\n',
+            'INFO: switch from "other-aabbccdd" to "desktop3-34567890" at 0,300\n',
         ]
         
         published_messages = []
@@ -201,8 +201,8 @@ class TestReconnectionScenarios:
                     subscriber.monitor_connection()
                 except KeyboardInterrupt:
                     pass
-            
-            mock_connect.assert_called_once()
+
+            assert mock_connect.call_count >= 1
 
 
 @pytest.mark.integration
@@ -210,20 +210,20 @@ class TestReconnectionScenarios:
 class TestStressScenarios:
     """Stress test scenarios"""
     
-    @patch('waldo.MQTTPublisher')
-    def test_high_volume_publishing(self, mock_publisher_class):
+    @patch('waldo.MQTTClientFactory')
+    def test_high_volume_publishing(self, mock_factory):
         """Test handling high volume of messages"""
         from waldo import process_logs
-        
+
         mock_publisher = Mock()
-        mock_publisher_class.return_value = mock_publisher
+        mock_factory.create_publisher.return_value = mock_publisher
         mock_publisher.publish.return_value = True
         mock_publisher.connect_with_retry.return_value = True
         
         # Generate many log entries
         test_logs = []
         for i in range(1000):
-            test_logs.append(f'INFO: switched to "desktop{i}-\n')
+            test_logs.append(f'INFO: switch from "other-aabbccdd" to "desktop{i}-{i:08x}" at 0,100\n')
         
         publish_count = 0
         

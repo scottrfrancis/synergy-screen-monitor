@@ -2,6 +2,9 @@
 
 # Synergy Screen Monitor - Complete Setup & Start with Live Monitoring
 # One command to install watchdog, start services, and watch output
+#
+# This script adds watchdog installation and live display on top of start.sh.
+# All service startup logic lives in start.sh (single source of truth).
 
 set -e
 
@@ -20,46 +23,26 @@ else
     echo "✓ Watchdog service already installed"
 fi
 
-# Stop any existing instances first
-echo "Cleaning up existing instances..."
-./stop.sh 2>/dev/null || true
-sleep 1
-
-# Start services in background
-echo "Starting services..."
-echo ""
-
-# Load config
-if [ -f ".env" ]; then
-    set -a
-    source .env
-    set +a
-fi
-
-SYNERGY_LOG_PATH=${SYNERGY_LOG_PATH:-"$HOME/Library/Logs/Synergy/synergy.log"}
-MQTT_BROKER=${MQTT_BROKER:-"localhost"}
-MQTT_PORT=${MQTT_PORT:-"1883"}
-MQTT_TOPIC=${MQTT_TOPIC:-"synergy"}
-MQTT_CLIENT_TYPE=${MQTT_CLIENT_TYPE:-"nanomq"}
-TARGET_DESKTOP=${TARGET_DESKTOP:-""}
-
-# Start waldo (log monitor) in background
-tail -F "$SYNERGY_LOG_PATH" | python3 ./waldo.py --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE" 2>/dev/null &
-WALDO_PID=$!
-
-# Start found-him (alert) in background if TARGET_DESKTOP is set
-if [ -n "$TARGET_DESKTOP" ]; then
-    python3 ./found-him.py "$TARGET_DESKTOP" --quiet --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE" 2>/dev/null &
-    FOUND_HIM_PID=$!
-fi
-
+# Delegate all service startup to start.sh (runs in background)
+./start.sh &
+START_PID=$!
 sleep 2
 
 echo "✓ Services started (watchdog monitoring enabled)"
 echo ""
 
-# Monitor Synergy log and show desktop switches in real-time
-# Extract just the base name (everything before the first dash)
-tail -F "$SYNERGY_LOG_PATH" | grep --line-buffered "switch from" | sed -u -E 's/.*to "([^-]+).*/\1/' | while read desktop; do
+# Load config only for the display log path
+if [ -f ".env" ]; then
+    set -a
+    source .env
+    set +a
+fi
+SYNERGY_LOG_PATH=${SYNERGY_LOG_PATH:-"$HOME/Library/Logs/Synergy/synergy.log"}
+
+# Live display: show desktop switches from waldo's stdout
+# waldo.py already parses and prints desktop names, but it runs in a pipe.
+# So we grep the Synergy log for switch events and show the target desktop.
+# The hex hash suffix (e.g., "studio-77773e4b") is stripped to show clean names.
+tail -F "$SYNERGY_LOG_PATH" | grep --line-buffered "switch from" | sed -u -E 's/.*to "([^"]+)".*/\1/' | sed -u -E 's/-[0-9a-f]{8}$//' | while read desktop; do
     echo "$desktop"
 done

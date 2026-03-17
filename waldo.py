@@ -54,9 +54,11 @@ def process_logs(broker_address, port, topic, client_type='paho'):
     
     try:
         for line in sys.stdin:
-            match = re.search(r'to "([^-]+)', line)
+            match = re.search(r'to "([^"]+)"', line)
             if match:
-                system_name = match.group(1)
+                raw_name = match.group(1)
+                # Strip trailing Synergy hex hash suffix (e.g., "studio-77773e4b" -> "studio")
+                system_name = re.sub(r'-[0-9a-f]{8}$', '', raw_name)
                 timestamp = datetime.now().isoformat()
                 message = json.dumps({
                     'current_desktop': system_name,
@@ -78,7 +80,10 @@ def process_logs(broker_address, port, topic, client_type='paho'):
                             wait_time = 2 ** retry_count
                             logger.debug(f"Publish retry {retry_count}/{max_retries}, waiting {wait_time}s")
                             time.sleep(wait_time)
-                    
+
+                if not published:
+                    logger.error(f"Failed to publish after {max_retries} retries: {system_name}")
+
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down")
     except Exception as e:

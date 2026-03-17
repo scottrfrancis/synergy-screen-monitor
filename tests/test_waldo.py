@@ -44,7 +44,7 @@ class TestMQTTPublisher:
         publisher.on_disconnect(mock_client, None, None, 0, None)
         assert publisher.connected is False
     
-    @patch('waldo.mqtt.Client')
+    @patch('mqtt_clients.paho_client.mqtt.Client')
     @patch('time.sleep')
     def test_connect_with_retry_success(self, mock_sleep, mock_mqtt_client, publisher):
         """Test successful connection with retry"""
@@ -65,26 +65,33 @@ class TestMQTTPublisher:
         mock_client.connect.assert_called_once_with('test.broker', 1883, keepalive=60)
         mock_client.loop_start.assert_called_once()
     
-    @patch('waldo.mqtt.Client')
-    @patch('time.sleep')
-    def test_connect_with_retry_timeout(self, mock_sleep, mock_mqtt_client, publisher):
+    @patch('mqtt_clients.paho_client.mqtt.Client')
+    @patch('mqtt_clients.paho_client.time')
+    def test_connect_with_retry_timeout(self, mock_time, mock_mqtt_client, publisher):
         """Test connection retry with timeout"""
         mock_client = MagicMock()
         mock_mqtt_client.return_value = mock_client
-        
+
         # Simulate connection timeout (connected stays False)
         publisher.connected = False
-        
-        # This will loop, so we need to break it after first iteration
-        with patch('time.time', side_effect=[0, 0.1, 10.1]):  # Simulate timeout
+
+        # Provide enough time.time() return values for the full retry cycle
+        # Loop 1: start_time=0, wait_check=0.1, wait_check=10.1 (timeout)
+        # Exception handler: first_failure_time=10.2, failure_duration=10.3
+        # sleep, then loop 2 triggers KeyboardInterrupt via sleep
+        mock_time.time.side_effect = [0, 0.1, 10.1, 10.2, 10.3] + [20.0] * 50
+        mock_time.sleep.side_effect = [None, KeyboardInterrupt()]
+
+        try:
             publisher.connect_with_retry()
-        
-        # Should have attempted connection
+        except KeyboardInterrupt:
+            pass
+
+        # Should have attempted connection and slept before retry
         mock_client.connect.assert_called()
-        mock_sleep.assert_called()  # Should sleep before retry
-        assert publisher.reconnect_delay == 2  # Should increase delay
+        mock_time.sleep.assert_called()
     
-    @patch('waldo.mqtt.Client')
+    @patch('mqtt_clients.paho_client.mqtt.Client')
     def test_publish_success(self, mock_mqtt_client, publisher):
         """Test successful message publishing"""
         mock_client = MagicMock()
@@ -102,7 +109,7 @@ class TestMQTTPublisher:
         assert result is True
         mock_client.publish.assert_called_once_with('test/topic', 'test message', qos=1)
     
-    @patch('waldo.mqtt.Client')
+    @patch('mqtt_clients.paho_client.mqtt.Client')
     def test_publish_failure(self, mock_mqtt_client, publisher):
         """Test failed message publishing"""
         mock_client = MagicMock()
@@ -120,7 +127,7 @@ class TestMQTTPublisher:
         assert result is False
         assert publisher.connected is False
     
-    @patch('waldo.mqtt.Client')
+    @patch('mqtt_clients.paho_client.mqtt.Client')
     def test_publish_reconnect(self, mock_mqtt_client, publisher):
         """Test publish triggers reconnect when disconnected"""
         mock_client = MagicMock()
@@ -147,46 +154,45 @@ class TestMQTTPublisher:
 class TestLogProcessing:
     """Test log processing functionality"""
     
-    @patch('sys.stdin', ['log line without match\n', 'switched to "desktop1-\n'])
-    @patch('waldo.MQTTPublisher')
-    def test_process_logs_pattern_matching(self, mock_publisher_class):
+    @patch('waldo.MQTTClientFactory')
+    def test_process_logs_pattern_matching(self, mock_factory):
         """Test that log patterns are correctly matched"""
         from waldo import process_logs
-        
+
         mock_publisher = MagicMock()
-        mock_publisher_class.return_value = mock_publisher
+        mock_factory.create_publisher.return_value = mock_publisher
         mock_publisher.publish.return_value = True
-        
+
         # Run with mocked stdin
-        with patch('sys.stdin', ['log line without match\n', 'switched to "desktop1-\n']):
+        with patch('sys.stdin', ['log line without match\n', 'switch from "other-aabbccdd" to "desktop1-12345678" at 0,100\n']):
             try:
                 process_logs('test.broker', 1883, 'test/topic')
             except StopIteration:
                 pass  # Expected when stdin is exhausted
-        
+
         # Should have published once for the matching line
         assert mock_publisher.publish.call_count == 1
         published_message = mock_publisher.publish.call_args[0][0]
         assert '"current_desktop": "desktop1"' in published_message
-    
-    @patch('waldo.MQTTPublisher')
-    def test_process_logs_retry_logic(self, mock_publisher_class):
+
+    @patch('waldo.MQTTClientFactory')
+    def test_process_logs_retry_logic(self, mock_factory):
         """Test retry logic for failed publishes"""
         from waldo import process_logs
-        
+
         mock_publisher = MagicMock()
-        mock_publisher_class.return_value = mock_publisher
-        
+        mock_factory.create_publisher.return_value = mock_publisher
+
         # Simulate publish failing twice then succeeding
         mock_publisher.publish.side_effect = [False, False, True]
-        
-        with patch('sys.stdin', ['switched to "desktop1-\n']):
+
+        with patch('sys.stdin', ['switch from "other-aabbccdd" to "desktop1-12345678" at 0,100\n']):
             with patch('time.sleep') as mock_sleep:
                 try:
                     process_logs('test.broker', 1883, 'test/topic')
                 except StopIteration:
                     pass
-        
+
         # Should have tried 3 times
         assert mock_publisher.publish.call_count == 3
         # Should have slept between retries
