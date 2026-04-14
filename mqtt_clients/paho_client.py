@@ -51,9 +51,6 @@ class PahoMQTTPublisher(MQTTPublisherInterface):
         self.connected = False
         self.reconnect_delay = 1
         self.max_reconnect_delay = 60
-        # Self-healing: track consecutive failure duration
-        self.first_failure_time = None
-        self.max_failure_duration = int(os.getenv('CLIENT_MAX_FAILURE_DURATION', 300))  # 5 minutes default
         
     def on_connect(self, client, userdata, flags, reason_code, properties):
         """
@@ -85,30 +82,25 @@ class PahoMQTTPublisher(MQTTPublisherInterface):
         """
         self.connected = False
 
-    def _check_network_health(self) -> bool:
+    def _test_tcp_connect(self) -> bool:
         """
-        Test if network is actually up using a fresh subprocess.
+        Test TCP connectivity to the broker using a fresh socket.
 
-        This spawns a new Python process to test socket connectivity,
-        which gets fresh OS socket state. If this succeeds but the main
-        process fails, we know the main process is stuck.
+        Uses a new socket each time to avoid stale OS routing cache entries
+        that can cause long-running processes to fail even after the broker
+        comes back online.
 
         Returns:
-            bool: True if subprocess can connect to broker, False otherwise
+            bool: True if TCP connection succeeds, False otherwise
         """
+        import socket
         try:
-            result = subprocess.run(
-                ['python3', '-c', f'''
-import socket
-s = socket.create_connection(("{self.broker_address}", {self.port}), timeout=5)
-s.close()
-print("OK")
-'''],
-                capture_output=True, text=True, timeout=10
+            s = socket.create_connection(
+                (self.broker_address, self.port), timeout=5
             )
-            return "OK" in result.stdout
-        except Exception as e:
-            logger.debug(f"Network health check failed: {e}")
+            s.close()
+            return True
+        except Exception:
             return False
 
     def connect_with_retry(self) -> bool:
@@ -118,14 +110,20 @@ print("OK")
         This method will retry indefinitely until a successful connection is made.
         It only returns True on success and does not return on failure.
 
-        Includes self-healing logic: if connection fails for too long but network
-        is actually up (verified by subprocess), exits to allow watchdog restart.
+        Before each MQTT connect attempt, verifies TCP reachability with a fresh
+        socket to avoid wasting time on stale routing failures.
 
         Returns:
             bool: True when successfully connected (never returns False)
         """
         while not self.connected:
             try:
+                # Pre-flight: verify broker is TCP-reachable with a fresh socket
+                # This avoids the stale-socket problem where a long-running process
+                # keeps failing even after the broker comes back online
+                if not self._test_tcp_connect():
+                    raise Exception(f"Broker unreachable at {self.broker_address}:{self.port}")
+
                 self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
                 self.client.on_connect = self.on_connect
                 self.client.on_disconnect = self.on_disconnect
@@ -151,26 +149,6 @@ print("OK")
                     raise Exception("Connection timeout")
 
             except Exception as e:
-                # Track failure start time for self-healing
-                if self.first_failure_time is None:
-                    self.first_failure_time = time.time()
-
-                failure_duration = time.time() - self.first_failure_time
-
-                # Self-healing: after prolonged failures, check if network is actually up
-                if failure_duration > self.max_failure_duration:
-                    logger.warning(f"Connection failing for {failure_duration:.0f}s, checking network health...")
-
-                    if self._check_network_health():
-                        logger.error(
-                            "Network is up but client is stuck. Exiting for watchdog restart. "
-                            "If watchdog is not running, manually restart with: ./stop.sh && ./start-all.sh"
-                        )
-                        sys.exit(1)  # Exit for watchdog to restart with fresh state
-                    else:
-                        logger.info("Network still down, resetting failure timer and continuing to retry")
-                        self.first_failure_time = time.time()  # Reset timer since network is actually down
-
                 logger.warning(f"Connection failed: {e}. Retrying in {self.reconnect_delay} seconds")
                 time.sleep(self.reconnect_delay)
 
