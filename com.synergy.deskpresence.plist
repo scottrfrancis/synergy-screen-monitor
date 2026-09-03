@@ -40,11 +40,14 @@
         <true/>
     </dict>
 
+    <!-- Logs live off /Volumes/workspace deliberately. That volume is itself mounted by
+         com.local.mount-workspace, so this agent can start before it exists; if launchd
+         cannot open its log paths the job fails silently instead of telling us why. -->
     <key>StandardOutPath</key>
-    <string>/Volumes/workspace/Synergy/logs/desk-presence-stdout.log</string>
+    <string>/Users/scottfrancis/Library/Logs/desk-presence-stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Volumes/workspace/Synergy/logs/desk-presence-stderr.log</string>
+    <string>/Users/scottfrancis/Library/Logs/desk-presence-stderr.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
