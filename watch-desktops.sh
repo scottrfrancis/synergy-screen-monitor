@@ -3,12 +3,17 @@
 # Synergy Desktop Watcher
 # Shows real-time desktop switches by subscribing to MQTT
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+source ./common.sh
+resolve_python || exit 1
+
 echo "=== Synergy Desktop Watcher ==="
 echo "Monitoring desktop switches via MQTT..."
 echo ""
 
 # Use found-him.py to subscribe and show all messages
-python3 - << 'PYTHON_SCRIPT'
+"$PYTHON" - << 'PYTHON_SCRIPT'
 import sys
 import json
 from mqtt_clients.factory import MQTTClientFactory

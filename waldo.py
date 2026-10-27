@@ -34,7 +34,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger('waldo')
 
-def process_logs(broker_address, port, topic, client_type='paho'):
+# Synergy names each screen "<name>-<8 hex>" in its logs; the suffix is per-install noise.
+SWITCH_TARGET = re.compile(r'to "([^"]+)"')
+HASH_SUFFIX = re.compile(r'-[0-9a-f]{8}$')
+
+
+def extract_desktop(line):
+    """
+    Return the bare destination screen name from a Synergy log line, or None.
+
+    Synergy 3.8.4 writes one JSON object per line to synergy.jsonl with the
+    message under "msg"; earlier builds wrote the message as plain text to
+    synergy.log. Both carry the same 'switch from "a" to "b" at x,y' message,
+    so the JSON envelope is unwrapped first and the text match runs on either.
+    """
+    text = line
+    if line.lstrip().startswith('{'):
+        try:
+            text = json.loads(line).get('msg', '')
+        except (ValueError, AttributeError):
+            text = line  # not the JSONL format after all; match the raw text
+    match = SWITCH_TARGET.search(text)
+    if not match:
+        return None
+    return HASH_SUFFIX.sub('', match.group(1))
+
+
+def process_logs(broker_address, port, topic, client_type='paho', dry_run=False):
     """
     Process Synergy log entries from stdin and publish desktop switching events.
     
@@ -46,7 +72,15 @@ def process_logs(broker_address, port, topic, client_type='paho'):
         port: MQTT broker port number
         topic: MQTT topic to publish messages to
         client_type: MQTT client type to use (default: 'paho')
+        dry_run: print each desktop name and publish nothing (no broker needed)
     """
+    if dry_run:
+        for line in sys.stdin:
+            system_name = extract_desktop(line)
+            if system_name:
+                print(system_name, flush=True)
+        return
+
     publisher = MQTTClientFactory.create_publisher(client_type, broker_address, port, topic)
     
     # Initial connection
@@ -54,11 +88,8 @@ def process_logs(broker_address, port, topic, client_type='paho'):
     
     try:
         for line in sys.stdin:
-            match = re.search(r'to "([^"]+)"', line)
-            if match:
-                raw_name = match.group(1)
-                # Strip trailing Synergy hex hash suffix (e.g., "studio-77773e4b" -> "studio")
-                system_name = re.sub(r'-[0-9a-f]{8}$', '', raw_name)
+            system_name = extract_desktop(line)
+            if system_name:
                 timestamp = datetime.now().isoformat()
                 message = json.dumps({
                     'current_desktop': system_name,
@@ -105,6 +136,8 @@ if __name__ == "__main__":
                         help=f'MQTT client type to use (default: {Config.MQTT_CLIENT_TYPE})')
     parser.add_argument('--debug', action='store_true', default=Config.DEBUG_MODE,
                         help='Enable debug logging')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Print desktop names from stdin without connecting to MQTT')
     
     args = parser.parse_args()
     
@@ -133,4 +166,4 @@ if __name__ == "__main__":
             logger.error(f"  - {error}")
         sys.exit(1)
     
-    process_logs(args.broker, args.port, args.topic, args.client_type)
+    process_logs(args.broker, args.port, args.topic, args.client_type, dry_run=args.dry_run)

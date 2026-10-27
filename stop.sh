@@ -5,40 +5,31 @@
 
 set -e  # Exit on any error
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 echo "=== Synergy Screen Monitor - Stopping Services ==="
 
-# Find and stop all waldo.py processes
-WALDO_PIDS=$(pgrep -f "python3 ./waldo.py" || true)
-if [ -n "$WALDO_PIDS" ]; then
-    echo "Stopping waldo.py processes: $WALDO_PIDS"
-    echo "$WALDO_PIDS" | xargs kill 2>/dev/null || true
+# Stop every process matching a pgrep pattern: TERM first, KILL if it lingers.
+stop_matching() {
+    local name="$1" pattern="$2" pids
+    pids=$(pgrep -f "$pattern" || true)
+    if [ -z "$pids" ]; then
+        echo "No $name processes found"
+        return 0
+    fi
+    echo "Stopping $name processes: $pids"
+    echo "$pids" | xargs kill 2>/dev/null || true
     sleep 1
 
-    # Force kill if still running
-    WALDO_PIDS=$(pgrep -f "python3 ./waldo.py" || true)
-    if [ -n "$WALDO_PIDS" ]; then
-        echo "Force stopping remaining waldo.py processes: $WALDO_PIDS"
-        echo "$WALDO_PIDS" | xargs kill -9 2>/dev/null || true
+    pids=$(pgrep -f "$pattern" || true)
+    if [ -n "$pids" ]; then
+        echo "Force stopping remaining $name processes: $pids"
+        echo "$pids" | xargs kill -9 2>/dev/null || true
     fi
-else
-    echo "No waldo.py processes found"
-fi
+}
 
-# Find and stop all found-him.py processes
-FOUND_HIM_PIDS=$(pgrep -f "python3 ./found-him.py" || true)
-if [ -n "$FOUND_HIM_PIDS" ]; then
-    echo "Stopping found-him.py processes: $FOUND_HIM_PIDS"
-    echo "$FOUND_HIM_PIDS" | xargs kill 2>/dev/null || true
-    sleep 1
-
-    # Force kill if still running
-    FOUND_HIM_PIDS=$(pgrep -f "python3 ./found-him.py" || true)
-    if [ -n "$FOUND_HIM_PIDS" ]; then
-        echo "Force stopping remaining found-him.py processes: $FOUND_HIM_PIDS"
-        echo "$FOUND_HIM_PIDS" | xargs kill -9 2>/dev/null || true
-    fi
-else
-    echo "No found-him.py processes found"
-fi
+stop_matching "waldo.py" "$WALDO_PATTERN"
+stop_matching "found-him.py" "$FOUND_HIM_PATTERN"
 
 echo "All services stopped"

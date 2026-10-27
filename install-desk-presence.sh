@@ -19,16 +19,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LABEL="com.synergy.deskpresence"
 
-# Resolve the REAL home, never $HOME. Under a profile-scoped tool (Claude Code with
-# ~/.claude-profiles/<p>) $HOME points at the profile dir, and a LaunchAgent written
-# there is never scanned at login -- it installs "successfully" and then does not
-# survive a reboot, which is the whole point of this script.
-REALHOME="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
-[ -d "$REALHOME" ] || REALHOME="/Users/$(id -un)"
-[ -d "$REALHOME" ] || { echo "ERROR: cannot resolve a real home directory"; exit 1; }
-case "$REALHOME" in
-  *.claude-profiles*) echo "ERROR: resolved a profile dir ($REALHOME), refusing"; exit 1 ;;
-esac
+source "$SCRIPT_DIR/common.sh"
+
+# The REAL home, never $HOME (see resolve_real_home for why).
+resolve_real_home
 
 INSTALL_DIR="$REALHOME/.local/share/desk-presence"
 LOG_DIR="$REALHOME/Library/Logs/desk-presence"
@@ -41,7 +35,7 @@ TOPIC="${DESK_TOPIC:-desk/presence}"
 INTERVAL="${DESK_INTERVAL:-30}"
 IDLE_THRESHOLD="${DESK_IDLE_THRESHOLD:-900}"
 HOST_NAME="${DESK_HOST_NAME:-studio}"   # the Synergy screen name, not $(hostname -s) = studio-3
-PYTHON="${DESK_PYTHON:-/usr/bin/python3}"
+PYTHON="${DESK_PYTHON:-}"   # empty: resolve_python auto-detects
 
 echo "=== Desk Presence Installation ==="
 echo ""
@@ -52,11 +46,7 @@ if [ "$(id -u)" = "0" ]; then
     exit 1
 fi
 
-if ! "$PYTHON" -c "import paho.mqtt.client" 2>/dev/null; then
-    echo "ERROR: $PYTHON cannot import paho.mqtt.client"
-    echo "Install it, or set DESK_PYTHON to an interpreter that has it."
-    exit 1
-fi
+resolve_python || { echo "Set DESK_PYTHON to an interpreter that has paho-mqtt."; exit 1; }
 echo "✓ $PYTHON has paho-mqtt"
 
 echo "Installing runtime to $INSTALL_DIR ..."
@@ -141,13 +131,7 @@ echo "✓ plist valid"
 pkill -f 'desk_presence.py --broker' 2>/dev/null && echo "stopped a manually-started publisher" || true
 
 echo "Loading the agent ..."
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-sleep 1
-# bootstrap can report EIO from a non-GUI session even when it registers; kickstart
-# afterwards is what actually confirms the job runs.
-launchctl bootstrap "gui/$(id -u)" "$PLIST_DEST" 2>/dev/null || true
-launchctl enable "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl kickstart -k "gui/$(id -u)/$LABEL" 2>/dev/null || true
+reload_launch_agent "$LABEL" "$PLIST_DEST"
 
 sleep 5
 STATUS="$(launchctl list | grep "$LABEL" || true)"

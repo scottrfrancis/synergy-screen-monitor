@@ -198,3 +198,67 @@ class TestLogProcessing:
         # Should have slept between retries
         assert mock_sleep.call_count == 2
         mock_sleep.assert_has_calls([call(2), call(4)])  # Exponential backoff
+
+@pytest.mark.unit
+class TestExtractDesktop:
+    """Synergy 3.8.4 writes synergy.jsonl; older builds wrote plain-text synergy.log.
+    Both formats must yield the bare screen name."""
+
+    PLAIN = 'core       [2026-10-23T05:43:43] - INFO    - switch from "mbp16-15ac1a6b" to "studio-77773e4b" at 3812,817\n'
+    JSONL = '{"ts":"2026-10-27T14:57:59.754Z","source":"core","level":"INFO","msg":"switch from \\"mbp16-15ac1a6b\\" to \\"studio-77773e4b\\" at 3798,1089"}\n'
+
+    def test_plain_text_line(self):
+        from waldo import extract_desktop
+        assert extract_desktop(self.PLAIN) == 'studio'
+
+    def test_jsonl_line(self):
+        from waldo import extract_desktop
+        assert extract_desktop(self.JSONL) == 'studio'
+
+    def test_jsonl_line_without_switch(self):
+        from waldo import extract_desktop
+        line = '{"ts":"2026-10-27T14:57:59.755Z","source":"core","level":"INFO","msg":"entering screen"}\n'
+        assert extract_desktop(line) is None
+
+    def test_plain_line_without_switch(self):
+        from waldo import extract_desktop
+        assert extract_desktop('core [x] - INFO - entering screen\n') is None
+
+    def test_malformed_json_falls_back_to_text_match(self):
+        from waldo import extract_desktop
+        assert extract_desktop('{not json: switch from "a-00000000" to "mbp16-15ac1a6b"\n') == 'mbp16'
+
+    def test_name_without_hash_suffix_is_unchanged(self):
+        from waldo import extract_desktop
+        assert extract_desktop('switch from "a" to "workstation" at 0,0\n') == 'workstation'
+
+
+@pytest.mark.unit
+class TestJsonlLogProcessing:
+    """process_logs must publish from the JSONL format Synergy now writes."""
+
+    JSONL = '{"ts":"2026-10-27T14:57:59.754Z","source":"core","level":"INFO","msg":"switch from \\"mbp16-15ac1a6b\\" to \\"studio-77773e4b\\" at 3798,1089"}\n'
+
+    @patch('waldo.MQTTClientFactory')
+    def test_process_logs_publishes_from_jsonl(self, mock_factory):
+        from waldo import process_logs
+
+        mock_publisher = MagicMock()
+        mock_factory.create_publisher.return_value = mock_publisher
+        mock_publisher.publish.return_value = True
+
+        with patch('sys.stdin', [self.JSONL]):
+            process_logs('test.broker', 1883, 'test/topic')
+
+        assert mock_publisher.publish.call_count == 1
+        assert '"current_desktop": "studio"' in mock_publisher.publish.call_args[0][0]
+
+    @patch('waldo.MQTTClientFactory')
+    def test_dry_run_prints_without_publishing(self, mock_factory, capsys):
+        from waldo import process_logs
+
+        with patch('sys.stdin', [self.JSONL]):
+            process_logs('test.broker', 1883, 'test/topic', dry_run=True)
+
+        mock_factory.create_publisher.assert_not_called()
+        assert capsys.readouterr().out.strip() == 'studio'

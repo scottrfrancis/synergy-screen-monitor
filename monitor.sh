@@ -1,16 +1,21 @@
 #!/bin/zsh
 
-# Synergy Screen Monitor - Live Desktop Monitor
-# Shows desktop switches in real-time
+# Synergy Screen Monitor - live view of desktop switches straight from the
+# Synergy log. No MQTT involved; useful to confirm the log path and format.
+# Parsing is waldo.py's own (--dry-run), so this shows exactly what gets published.
 
-echo "=== Live Desktop Switching Monitor ==="
-echo "Watching for desktop changes..."
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+source ./common.sh
+
+load_env
+resolve_python
+resolve_synergy_log_path
+
+echo "=== Synergy Desktop Monitor ==="
+echo "Watching $SYNERGY_LOG_PATH (Ctrl-C to stop)"
 echo ""
 
-# Follow Synergy log and extract desktop names
-tail -F /Users/scottfrancis/Library/Logs/Synergy/synergy.log | \
-  grep --line-buffered "switch from" | \
-  sed -u -E 's/.*to "([^"]+)".*/→ \1/' | \
-  while read line; do
-    echo "[$(date '+%H:%M:%S')] $line"
-  done
+exec "$PYTHON" ./waldo.py --dry-run < <(tail -F "$SYNERGY_LOG_PATH")
