@@ -29,10 +29,9 @@ This system uses log monitoring as its integration method with Synergy. This app
 
 ## Requirements
 
-- Python 3.x
+- Python 3.x with the `paho-mqtt` library importable. The scripts pick the first of `python3` and `/usr/bin/python3` that can import it, or the interpreter named in `PYTHON`. A Homebrew Python upgrade moves `python3` to a fresh interpreter with no packages, so the scripts check before launching anything.
 - MQTT broker (e.g., Mosquitto) running on your network
-- Synergy installed and logging enabled
-- `paho-mqtt` Python library
+- Synergy installed and logging enabled. Synergy 3.8.4 writes `synergy.jsonl`; earlier builds wrote `synergy.log`. Both formats are parsed.
 
 ## Installation
 
@@ -96,6 +95,12 @@ For production use, install the watchdog service to automatically recover from f
 # Install watchdog as a launchd service (runs at login)
 ./install-watchdog.sh
 
+# The installer copies the runtime (scripts, waldo.py, found-him.py, config, .env)
+# to ~/.local/share/synergy-monitor and points launchd there. macOS refuses
+# launchd-spawned processes access to an SMB-mounted repo, so an agent pointed at
+# /Volumes/workspace never starts. start-all.sh re-runs the installer each time,
+# so the copy tracks the repo.
+
 # The watchdog will:
 # - Start automatically at login
 # - Monitor service health every 30 seconds
@@ -104,9 +109,9 @@ For production use, install the watchdog service to automatically recover from f
 # - Prevent restart loops with throttling
 
 # View watchdog logs
-tail -f logs/watchdog.log
+tail -f ~/.local/share/synergy-monitor/logs/watchdog.log
 
-# Uninstall watchdog service
+# Uninstall watchdog service (removes the agent and the runtime copy)
 ./uninstall-watchdog.sh
 ```
 
@@ -128,7 +133,12 @@ tail -f logs/watchdog.log
 
 # Restart everything
 ./stop.sh && ./start.sh
+
+# Watch what waldo.py would publish, straight from the Synergy log, no MQTT
+./monitor.sh
 ```
+
+`start.sh` exits, with a non-zero status, when `waldo.py` exits, and it stops its own `tail` and alert service on the way out. The watchdog then restarts the services from its own copy.
 
 ### Manual Usage
 
@@ -137,7 +147,10 @@ Run components separately for testing or custom configurations:
 #### Monitor Synergy logs:
 
 ```bash
-tail -f ~/Library/Logs/Synergy/synergy.log | python waldo.py
+tail -F ~/Library/Logs/Synergy/synergy.jsonl | python waldo.py
+
+# Parse only, print each destination desktop, publish nothing
+tail -F ~/Library/Logs/Synergy/synergy.jsonl | python waldo.py --dry-run
 ```
 
 #### Listen for specific desktop:
@@ -150,7 +163,7 @@ python found-him.py workstation
 
 ```bash
 # Monitor with custom MQTT settings
-tail -f /path/to/synergy.log | python waldo.py --broker 192.168.1.100 --topic my-synergy --client-type paho
+tail -F /path/to/synergy.jsonl | python waldo.py --broker 192.168.1.100 --topic my-synergy --client-type paho
 
 # Alert for different desktop with custom settings
 python found-him.py --broker 192.168.1.100 --topic my-synergy --client-type paho workstation
@@ -166,7 +179,7 @@ The system uses a combination of `.env` files and command-line arguments for con
 
 ```bash
 ROLE=primary
-SYNERGY_LOG_PATH=/Users/username/Library/Logs/Synergy/synergy.log
+SYNERGY_LOG_PATH=/Users/username/Library/Logs/Synergy/synergy.jsonl
 TARGET_DESKTOP=          # Optional: alert for this machine too
 MQTT_BROKER=localhost
 MQTT_PORT=1883
@@ -261,7 +274,8 @@ Alert sounds work across platforms:
 
 - Uses `tail -F` (not `tail -f`) to properly handle log rotation
 - When Synergy rotates logs, monitoring continues seamlessly with the new file
-- Extracts desktop names using regex pattern `r'to "([^-]+)'` from log entries
+- Synergy 3.8.4 writes one JSON object per line (`synergy.jsonl`) with the message under `msg`; earlier builds wrote plain text (`synergy.log`). `waldo.extract_desktop` unwraps the JSON envelope when a line starts with `{`, then matches `to "<screen>"` in the message text, so both formats work.
+- The per-install hex suffix Synergy adds to screen names (`studio-77773e4b`) is stripped before publishing
 
 ### Architecture Decisions
 
@@ -338,7 +352,7 @@ Once built, use NanoMQ client by specifying `--client-type nanomq`:
 
 ```bash
 # Use NanoMQ for log monitoring
-tail -f ~/Library/Logs/Synergy/synergy.log | python waldo.py --client-type nanomq
+tail -F ~/Library/Logs/Synergy/synergy.jsonl | python waldo.py --client-type nanomq
 
 # Use NanoMQ for alerts
 python found-him.py workstation --client-type nanomq
@@ -372,8 +386,8 @@ NanoMQ provides significant performance improvements:
 ### No alerts when switching desktops
 
 1. Check MQTT broker is running: `mosquitto_sub -h vault.local -t synergy`
-2. Verify Synergy is logging desktop switches
-3. Ensure log file path is correct in `start.sh`
+2. Run `./monitor.sh` and switch desktops. If nothing prints, the log path or format is wrong. Synergy 3.8.4 moved from `synergy.log` to `synergy.jsonl`; check which file is being written to in `~/Library/Logs/Synergy/` and set `SYNERGY_LOG_PATH` accordingly.
+3. If `monitor.sh` prints names but nothing reaches MQTT, check `waldo.py` is running (`pgrep -fl waldo.py`). `start.sh` fails at startup when no interpreter can import `paho-mqtt`; install it with `/usr/bin/python3 -m pip install paho-mqtt` or set `PYTHON`.
 4. **Log rotation**: If alerts stop working after time, check if Synergy rotated logs - `start.sh` uses `tail -F` to handle this automatically
 
 ### Connection refused errors
@@ -398,7 +412,7 @@ NanoMQ provides significant performance improvements:
 ### Watchdog Issues
 
 **Watchdog not starting services:**
-1. Check watchdog logs: `tail -f logs/watchdog.log`
+1. Check watchdog logs: `tail -f ~/.local/share/synergy-monitor/logs/watchdog.log`
 2. Verify broker is reachable: `nc -zv your-broker-host 1883`
 3. Check for restart throttling (too many restarts in 5 minutes)
 4. Manual recovery: `./stop.sh && ./start.sh`
@@ -406,7 +420,7 @@ NanoMQ provides significant performance improvements:
 **Too many restarts:**
 - Watchdog throttles after 3 restarts in 5 minutes
 - This prevents restart loops from persistent problems
-- Check logs to identify root cause: `tail -100 logs/watchdog.log`
+- Check logs to identify root cause: `tail -100 ~/.local/share/synergy-monitor/logs/watchdog.log`
 - Fix the underlying issue (broker down, config error, etc.)
 
 **Check watchdog status:**
@@ -415,7 +429,10 @@ NanoMQ provides significant performance improvements:
 launchctl list | grep synergy.watchdog
 
 # View recent activity
-tail -30 logs/watchdog.log
+tail -30 ~/.local/share/synergy-monitor/logs/watchdog.log
+
+# "spawn failed" or last exit 78 (EX_CONFIG) means launchd cannot read the paths
+# in the plist. Re-run ./install-watchdog.sh; it installs off the network volume.
 
 # Manually trigger restart
 launchctl kickstart -k gui/$(id -u)/com.synergy.watchdog
@@ -428,7 +445,7 @@ launchctl kickstart -k gui/$(id -u)/com.synergy.watchdog
 ### Version Compatibility
 
 - This system works with all Synergy versions that write desktop switch events to logs
-- Log format changes are handled by the regex pattern matching
+- Plain-text `synergy.log` (before 3.8.4) and JSONL `synergy.jsonl` (3.8.4) are both parsed
 - No modifications to Synergy itself are required
 
 ## Examples

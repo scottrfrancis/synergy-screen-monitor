@@ -5,15 +5,17 @@
 
 set -e  # Exit on any error
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+source ./common.sh
+
 # Load environment variables from .env file if it exists
 if [ -f ".env" ]; then
     echo "Loading configuration from .env file..."
-    set -a  # Enable auto-export
-    source .env
-    set +a  # Disable auto-export
 else
     echo "Warning: .env file not found. Using defaults or environment variables."
 fi
+load_env
 
 # Set defaults if not provided
 ROLE=${ROLE:-"secondary"}
@@ -24,9 +26,14 @@ MQTT_CLIENT_TYPE=${MQTT_CLIENT_TYPE:-"nanomq"}
 LOG_DIR=${LOG_DIR:-"./logs"}
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
+# Pick an interpreter that can actually import paho-mqtt. Fails loud rather
+# than launching services that die on their first import.
+resolve_python
+echo "Python: $PYTHON"
+
 # Validate NanoMQ availability if selected
 if [ "$MQTT_CLIENT_TYPE" = "nanomq" ]; then
-    if ! python3 -c "import nanomq_bindings" 2>/dev/null; then
+    if ! "$PYTHON" -c "import nanomq_bindings" 2>/dev/null; then
         echo "Warning: NanoMQ bindings not available. Falling back to Paho client."
         echo "To build NanoMQ support, run: ./build.sh"
         MQTT_CLIENT_TYPE="paho"
@@ -36,10 +43,15 @@ fi
 # Ensure logs directory exists
 mkdir -p "$LOG_DIR"
 
+# Whatever ends this script, take its children with it: the tail feeding
+# waldo and the background alert service. Without this a dead waldo left
+# tail -F running and the pipeline looked alive from the outside.
+trap 'pkill -P $$ 2>/dev/null || true' EXIT
+
 # Stop any existing instances before starting new ones
 echo "Checking for existing service instances..."
-WALDO_PIDS=$(pgrep -f "python3 ./waldo.py" || true)
-FOUND_HIM_PIDS=$(pgrep -f "python3 ./found-him.py" || true)
+WALDO_PIDS=$(pgrep -f "$WALDO_PATTERN" || true)
+FOUND_HIM_PIDS=$(pgrep -f "$FOUND_HIM_PATTERN" || true)
 
 if [ -n "$WALDO_PIDS" ] || [ -n "$FOUND_HIM_PIDS" ]; then
     echo "Found running services. Stopping them first..."
@@ -80,15 +92,12 @@ if [ "$ROLE" = "primary" ]; then
     echo "=== PRIMARY MODE: Running log monitor + optional local alerts ==="
     
     # Validate primary configuration
-    if [ -z "$SYNERGY_LOG_PATH" ]; then
-        echo "ERROR: SYNERGY_LOG_PATH must be set for primary machines"
-        echo "Please check your .env file or set the environment variable"
-        exit 1
-    fi
+    resolve_synergy_log_path
     
     if [ ! -f "$SYNERGY_LOG_PATH" ]; then
         echo "ERROR: Synergy log file not found: $SYNERGY_LOG_PATH"
-        echo "Please check your SYNERGY_LOG_PATH setting"
+        echo "Please check your SYNERGY_LOG_PATH setting."
+        echo "Synergy 3.8.4 writes synergy.jsonl; builds before it wrote synergy.log."
         exit 1
     fi
     
@@ -97,7 +106,7 @@ if [ "$ROLE" = "primary" ]; then
     # Start local alert service if target desktop is specified
     if [ -n "$TARGET_DESKTOP" ] && [ "$TARGET_DESKTOP" != "" ]; then
         echo "Starting local alert service for desktop: $TARGET_DESKTOP"
-        local_alert_args=(python3 ./found-him.py "$TARGET_DESKTOP" --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
+        local_alert_args=("$PYTHON" ./found-him.py "$TARGET_DESKTOP" --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
         if [ "$DEBUG_MODE" = "true" ]; then
             local_alert_args+=(--debug)
         fi
@@ -105,13 +114,15 @@ if [ "$ROLE" = "primary" ]; then
     fi
     
     # Start log monitor (foreground)
-    waldo_args=(python3 ./waldo.py --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
+    waldo_args=("$PYTHON" ./waldo.py --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
     if [ "$DEBUG_MODE" = "true" ]; then
         waldo_args+=(--debug)
     fi
     
     echo "Starting Log Monitor Service (Waldo) in foreground..."
-    tail -F "$SYNERGY_LOG_PATH" | "${waldo_args[@]}"
+    # waldo is the foreground command, so its exit ends this script (set -e)
+    # and the EXIT trap reaps the tail. A plain pipeline would block on tail.
+    "${waldo_args[@]}" < <(tail -F "$SYNERGY_LOG_PATH")
     
 elif [ "$ROLE" = "secondary" ]; then
     echo "=== SECONDARY MODE: Running alert service only ==="
@@ -127,7 +138,7 @@ elif [ "$ROLE" = "secondary" ]; then
     echo "Monitoring for desktop: $TARGET_DESKTOP"
     
     # Start alert service (foreground)
-    found_him_args=(python3 ./found-him.py "$TARGET_DESKTOP" --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
+    found_him_args=("$PYTHON" ./found-him.py "$TARGET_DESKTOP" --broker "$MQTT_BROKER" --port "$MQTT_PORT" --topic "$MQTT_TOPIC" --client-type "$MQTT_CLIENT_TYPE")
     if [ "$DEBUG_MODE" = "true" ]; then
         found_him_args+=(--debug)
     fi

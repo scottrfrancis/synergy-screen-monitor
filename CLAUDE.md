@@ -17,7 +17,7 @@ This is a Python-based MQTT monitoring system for Synergy (keyboard/mouse sharin
 ### Running Components Individually
 ```bash
 # Run the log monitor (requires Synergy logs piped to stdin)
-tail -f ~/Library/Logs/Synergy/synergy.log | python waldo.py
+tail -F ~/Library/Logs/Synergy/synergy.jsonl | python waldo.py
 
 # Run the alert subscriber
 python found-him.py --broker localhost --topic synergy --key desktop --value workstation
@@ -61,13 +61,15 @@ The system consists of three components:
    - Configurable via command-line arguments
 
 3. **start.sh** - Orchestration script that launches both components
-   - Currently hardcoded to monitor for "workstation" desktop
-   - Log path hardcoded to: /Users/scottfrancis/Library/Logs/Synergy/synergy.log
+   - Role, broker and log path come from `.env`; the log path falls back to the platform default in `config.py`
+   - Sources `common.sh`, which holds the shared pgrep patterns, the interpreter check (`resolve_python`), `.env` loading and real-home resolution for every shell script
 
 ## Key Considerations
 
 - The system uses MQTT broker at `localhost:1883` by default
-- Log paths are currently hardcoded in start.sh and should be made configurable
+- Synergy 3.8.4 writes `synergy.jsonl` (one JSON object per line); earlier builds wrote plain-text `synergy.log`. `waldo.extract_desktop` handles both
+- The shell scripts pick an interpreter that can import paho-mqtt (`resolve_python` in `common.sh`) because a Homebrew Python upgrade leaves `python3` without site-packages
+- The watchdog launchd agent runs from a copy in `~/.local/share/synergy-monitor`; macOS TCC blocks launchd-spawned processes from the SMB-mounted repo. `start-all.sh` re-runs `install-watchdog.sh` to refresh that copy
 - Comprehensive testing infrastructure with pytest (run tests with `pytest`)
 - Cross-platform alert functionality is implemented for macOS, Linux, and Windows
 - All JSON messages include a timestamp field
@@ -101,12 +103,12 @@ After investigating multiple approaches for real-time desktop focus feedback, th
 ## Technical Implementation Details
 
 ### Log Parsing
-- Uses regex pattern `r'to "([^-]+)'` to extract desktop names from Synergy log entries
-- Monitors log lines containing "switched to" events
+- `waldo.extract_desktop(line)`: if the line starts with `{` it is parsed as JSON and the `msg` field is used, otherwise the raw line is; then `to "<screen>"` is matched and the `-<8 hex>` install suffix stripped
+- `waldo.py --dry-run` prints the parsed names without touching MQTT; `monitor.sh` uses it as the live viewer
 
 ### Log Rotation Handling
 - `start.sh` uses `tail -F` (uppercase F) which follows the file by name
-- Automatically handles when Synergy rotates logs (e.g., synergy.log → synergy.log.1)
+- Automatically handles when Synergy rotates logs (e.g., synergy.jsonl recreated after a restart)
 - Continues monitoring the new log file without interruption
 
 ### MQTT Architecture

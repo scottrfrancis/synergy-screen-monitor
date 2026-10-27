@@ -25,6 +25,10 @@ except ImportError:
     pass
 
 
+# Synergy 3.8.4 logs to synergy.jsonl; builds before it logged to synergy.log.
+SYNERGY_LOG_FILENAME = 'synergy.jsonl'
+
+
 class Config:
     """
     Configuration class that loads settings from environment variables.
@@ -49,18 +53,19 @@ class Config:
     def _get_default_synergy_log_path() -> str:
         """Get default Synergy log path based on platform."""
         home = Path.home()
+        filename = SYNERGY_LOG_FILENAME
         
         # Windows (check first as os.uname() is not available on Windows)
         if os.name == 'nt':
-            return str(home / 'AppData' / 'Local' / 'Synergy' / 'synergy.log')
+            return str(home / 'AppData' / 'Local' / 'Synergy' / filename)
         
         # macOS
         elif os.name == 'posix' and hasattr(os, 'uname') and os.uname().sysname == 'Darwin':
-            return str(home / 'Library' / 'Logs' / 'Synergy' / 'synergy.log')
+            return str(home / 'Library' / 'Logs' / 'Synergy' / filename)
         
         # Linux and other Unix-like systems
         else:
-            return str(home / '.local' / 'share' / 'synergy' / 'synergy.log')
+            return str(home / '.local' / 'share' / 'synergy' / filename)
     
     SYNERGY_LOG_PATH = os.getenv('SYNERGY_LOG_PATH', _get_default_synergy_log_path.__func__())
     

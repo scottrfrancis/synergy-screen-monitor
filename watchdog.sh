@@ -8,13 +8,10 @@ set -e
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+source ./common.sh
 
 # Load environment variables from .env file if it exists
-if [ -f ".env" ]; then
-    set -a
-    source .env
-    set +a
-fi
+load_env
 
 # Watchdog configuration
 CHECK_INTERVAL=${WATCHDOG_CHECK_INTERVAL:-30}  # Check every 30 seconds
@@ -86,7 +83,7 @@ check_broker_availability() {
 # Check if waldo.py is running (primary mode only)
 check_waldo_running() {
     if [ "$ROLE" = "primary" ]; then
-        if pgrep -f "python3 ./waldo.py" > /dev/null 2>&1; then
+        if pgrep -f "$WALDO_PATTERN" > /dev/null 2>&1; then
             return 0
         else
             return 1
@@ -98,7 +95,7 @@ check_waldo_running() {
 # Check if found-him.py is running
 check_found_him_running() {
     if [ -n "$TARGET_DESKTOP" ] && [ "$TARGET_DESKTOP" != "" ]; then
-        if pgrep -f "python3 ./found-him.py" > /dev/null 2>&1; then
+        if pgrep -f "$FOUND_HIM_PATTERN" > /dev/null 2>&1; then
             return 0
         else
             return 1
